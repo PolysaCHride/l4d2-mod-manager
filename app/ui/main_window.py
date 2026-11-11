@@ -1667,7 +1667,11 @@ class MainWindow(QMainWindow):
         if self._update_worker is not None and self._update_worker.isRunning():
             return
         self._st_update_sub.setText("检查中…")
-        url = repo + ("/releases/latest" if "github.com" in repo else "/update.json")
+        if "github.com/" in repo:
+            owner_repo = repo.split("github.com/", 1)[1].strip("/")
+            url = "https://api.github.com/repos/%s/releases/latest" % owner_repo
+        else:
+            url = repo + "/update.json"
         worker = UpdateCheckWorker(url)
         self._update_worker = worker
         worker.done.connect(self._on_update_check)
