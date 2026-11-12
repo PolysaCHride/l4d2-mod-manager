@@ -157,9 +157,19 @@ def get_details(item_ids, proxy=""):
             _last_call = time.time()
     out = []
     for d in resp.get("response", {}).get("publishedfiledetails", []):
-        appid = d.get("consumer_appid")
+        # Steam Web API 使用 consumer_app_id。兼容早期/非标准响应里的
+        # consumer_appid，避免把 AppID 730 等非 L4D2 物品误当成本游戏模组。
+        appid = d.get("consumer_app_id")
+        if appid in (None, ""):
+            appid = d.get("consumer_appid")
+        try:
+            appid = int(appid) if appid not in (None, "") else None
+        except (TypeError, ValueError):
+            pass
+        d["consumer_app_id"] = appid
         if appid not in (None, 0, L4D2_APPID):
-            d["result"] = -100  # 非本游戏的物品（部分响应缺 consumer_appid，视为通过）
+            d["result"] = -100
+            d["reject_reason"] = "wrong_app_id"
         out.append(d)
     return out
 

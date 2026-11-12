@@ -65,6 +65,26 @@ class Library(object):
             return rec["preview"]
         return ""
 
+    def reveal_mod(self, file_name):
+        """在资源管理器中定位 mod 及同目录封面。"""
+        from . import game
+        path = os.path.join(self.paths.addons_dir, file_name)
+        return game.reveal_files([path, self.preview_for(file_name)])
+
+    def find_existing_workshop(self, workshop_id):
+        """按工坊 ID 查找库内已有模组；未登记但磁盘上已有目标 VPK 时也算存在。"""
+        wid = str(workshop_id or "").strip()
+        if not wid:
+            return None
+        for rec in self.store.mods().values():
+            if str(rec.get("workshop_id") or "").strip() == wid:
+                return rec
+        # 下载流程固定落盘为 <工坊ID>.vpk；库缓存滞后时仍应避免重复下载。
+        for file_name in ("%s.vpk" % wid, "%s_dir.vpk" % wid):
+            if os.path.isfile(os.path.join(self.paths.addons_dir, file_name)):
+                return self.store.get_mod(file_name) or new_mod_record(file_name)
+        return None
+
     # ---------- 扫描 ----------
     def _scan_one(self, file_name):
         """返回 (record, rebuilt)。rebuilt=True 表示重新解析了 vpk。"""
@@ -105,7 +125,6 @@ class Library(object):
         hint = (old or {}).get("title", "") or os.path.splitext(file_name)[0]
         category, item, tags = clf.classify_paths(vpk.paths(), addoninfo=info,
                                                   mission=mission, hint=hint)
-        chapters = vpkmod.extract_chapters(mission) if mission else []
 
         stem = os.path.splitext(file_name)[0]
         workshop_id = stem if stem.isdigit() else ""
@@ -129,7 +148,6 @@ class Library(object):
             "size": size,
             "mtime": mtime,
             "workshop_id": workshop_id,
-            "chapters": chapters,
             "clfv": clf.CLF_VERSION,
             "source": (old or {}).get("source", "scan"),
             "preview": preview or (old or {}).get("preview", ""),

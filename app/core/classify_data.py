@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-"""官方资源白名单：由参考项目(fdklgbh/L4D2-Mod-Manager, GPL-3.0)
-的分类数据表转换生成，可用 tools/gen_classify_data.py 重新生成。"""
+"""官方资源白名单：由 fdklgbh/L4D2-Mod-Manager 的 GPL-3.0 分类数据
+转换生成，详见 THIRD_PARTY_NOTICES.md。"""
 import re
 
 # stem(小写) -> [(类别, 物品), ...]

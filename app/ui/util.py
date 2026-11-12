@@ -4,13 +4,13 @@ import os
 import re
 import time
 
-from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QImageReader, QPixmap
+from PySide6.QtCore import QRectF, QSize, Qt
+from PySide6.QtGui import QImageReader, QPainter, QPainterPath, QPixmap
 
+from ..core import app_paths
 from . import theme
 
-_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-WIKI_DIR = os.path.join(_ROOT, "assets", "wiki")
+WIKI_DIR = app_paths.asset_path("wiki")
 
 # 占位图缓存（含 wiki 占位），避免反复解码
 _PIX_CACHE = {}
@@ -64,7 +64,23 @@ def _cache_put(key, pm):
     _PIX_CACHE[key] = pm
 
 
-def load_thumb(path, width, height, category, item=""):
+def rounded_pixmap(pixmap, radius):
+    """裁出圆角预览图，避免卡片图片的直角破坏整体轮廓。"""
+    if pixmap.isNull() or radius <= 0:
+        return pixmap
+    result = QPixmap(pixmap.size())
+    result.fill(Qt.transparent)
+    painter = QPainter(result)
+    painter.setRenderHint(QPainter.Antialiasing)
+    path = QPainterPath()
+    path.addRoundedRect(QRectF(result.rect()), radius, radius)
+    painter.setClipPath(path)
+    painter.drawPixmap(0, 0, pixmap)
+    painter.end()
+    return result
+
+
+def load_thumb(path, width, height, category, item="", radius=0):
     """预览图优先级：mod 自带/已下载预览 → wiki 物品图 → wiki 类别图 → 渐变占位。
 
     全部走缓存（key 含文件 mtime，预览图更新后自动失效），避免大库反复解码卡顿。
@@ -76,22 +92,23 @@ def load_thumb(path, width, height, category, item=""):
     elif wp:
         key_src = wp
     if not key_src:
-        key = ("gen", category, width, height)
+        key = ("gen", category, width, height, radius)
         pm = _PIX_CACHE.get(key)
         if pm is None:
-            pm = theme.thumb_pixmap(width, height, category)
+            pm = rounded_pixmap(theme.thumb_pixmap(width, height, category), radius)
             _cache_put(key, pm)
         return pm
     try:
         mtime = os.stat(key_src).st_mtime
     except OSError:
         mtime = 0
-    key = (key_src, mtime, width, height)
+    key = (key_src, mtime, width, height, radius)
     pm = _PIX_CACHE.get(key)
     if pm is not None:
         return pm
     img = _decode_scaled(key_src, width, height)
     pm = img if img is not None else theme.thumb_pixmap(width, height, category)
+    pm = rounded_pixmap(pm, radius)
     _cache_put(key, pm)
     return pm
 

@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """游戏进程检测与启动。"""
+import base64
+import json
 import os
 import subprocess
 
@@ -25,17 +27,87 @@ def launch_game(steam_exe=""):
     os.startfile("steam://rungameid/" + APPID)  # noqa: S606
 
 
-def launch_map(map_name, steam_exe=""):
-    """一键进图：steam.exe -applaunch 550 +map <地图名>。"""
-    if steam_exe and os.path.isfile(steam_exe):
-        subprocess.Popen([steam_exe, "-applaunch", APPID, "+map", str(map_name)])
-    else:
-        os.startfile("steam://rungameid/" + APPID)  # noqa: S606
-
-
 def open_workshop_page(item_id):
     os.startfile("steam://url/CommunityFilePage/" + str(item_id))  # noqa: S606
 
 
 def open_folder(path):
     os.startfile(path)  # noqa: S606
+
+
+def reveal_files(paths):
+    """在资源管理器中打开首个文件所在目录，并同时选中同目录下的目标文件。"""
+    files = []
+    seen = set()
+    for path in paths:
+        path = os.path.abspath(os.fspath(path))
+        key = os.path.normcase(path)
+        if key not in seen and os.path.isfile(path):
+            files.append(path)
+            seen.add(key)
+    if not files:
+        return False
+
+    folder = os.path.dirname(files[0])
+    files = [path for path in files
+             if os.path.normcase(os.path.dirname(path)) == os.path.normcase(folder)]
+    payload = base64.b64encode(json.dumps(
+        {"folder": folder, "files": files}, ensure_ascii=False).encode("utf-8")).decode("ascii")
+    script = r"""
+$ErrorActionPreference = 'Stop'
+$payload = [Text.Encoding]::UTF8.GetString(
+    [Convert]::FromBase64String('%s')) | ConvertFrom-Json
+$folderPath = [IO.Path]::GetFullPath([string]$payload.folder)
+$filePaths = @($payload.files | ForEach-Object {
+    [IO.Path]::GetFullPath([string]$_)
+})
+$shell = New-Object -ComObject Shell.Application
+$shell.Explore($folderPath)
+$window = $null
+for ($attempt = 0; $attempt -lt 40 -and -not $window; $attempt++) {
+    Start-Sleep -Milliseconds 50
+    foreach ($candidate in @($shell.Windows())) {
+        try {
+            $path = $candidate.Document.Folder.Self.Path
+            if ([string]::Equals([IO.Path]::GetFullPath([string]$path),
+                                 $folderPath,
+                                 [StringComparison]::OrdinalIgnoreCase)) {
+                $window = $candidate
+                break
+            }
+        } catch {
+        }
+    }
+}
+if (-not $window) {
+    Start-Process -FilePath explorer.exe -ArgumentList @(
+        ('/select,"{0}"' -f $filePaths[0]))
+    exit
+}
+$folder = $shell.Namespace($folderPath)
+foreach ($path in $filePaths) {
+    $item = $folder.ParseName([IO.Path]::GetFileName($path))
+    if ($item) {
+        $window.Document.SelectItem($item, 1)
+    }
+}
+""" % payload
+    encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+    powershell = os.path.join(
+        os.environ.get("SystemRoot", r"C:\Windows"),
+        r"System32\WindowsPowerShell\v1.0\powershell.exe")
+    try:
+        subprocess.Popen(
+            [powershell, "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return True
+    except (OSError, subprocess.SubprocessError):
+        try:
+            subprocess.Popen(
+                ["explorer.exe", "/select," + files[0]],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            return True
+        except (OSError, subprocess.SubprocessError):
+            return False

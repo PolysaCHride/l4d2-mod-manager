@@ -4,35 +4,42 @@ import base64
 import os
 import time
 
-from PySide6.QtCore import QByteArray, QEvent, QPoint, QRect, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import (
+    QAbstractAnimation, QByteArray, QEasingCurve, QEvent, QPoint, QPropertyAnimation,
+    QRect, QSize, Qt, QTimer, Signal, Property,
+)
 from PySide6.QtGui import QColor, QPainter, QPen, QFontMetrics, QIcon, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QDialog, QFileDialog, QFormLayout, QFrame, QGridLayout,
-    QHBoxLayout, QLabel, QInputDialog, QLineEdit, QListWidget, QListWidgetItem,
-    QMainWindow, QMenu, QMessageBox, QPushButton, QScrollArea, QComboBox, QSizePolicy,
-    QSplitter, QStackedWidget, QVBoxLayout, QWidget,
+    QGraphicsOpacityEffect, QHBoxLayout, QLabel, QInputDialog, QLineEdit, QListWidget,
+    QListWidgetItem, QMainWindow, QMenu, QPushButton, QScrollArea, QComboBox,
+    QSizePolicy, QSplitter, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from ..core import game as gamemod
 from ..core import paths as pathsmod
 from ..core import steam_api
+from ..core import app_paths
 from ..core.classify import CATEGORIES
 from ..core.library import Library
 from ..core.paths import GamePaths
 from ..core.store import Store, mod_name_sort_key
 from . import theme, util
 from .dialogs import (
-    CategoryDialog, ChaptersDialog, DetailDialog,
+    CategoryDialog, DetailDialog, ImportArchiveDialog,
     WorkshopDialog,
 )
-from .workers import DetailsWorker, DownloadWorker, ImportWorker, ScanWorker, UpdateCheckWorker
+from .components import (
+    AppDialog, AppMessageBox as QMessageBox, fade_in_window, motion_enabled,
+)
+from .workers import DetailsWorker, DownloadWorker, ScanWorker, UpdateCheckWorker
 
 APP_TITLE = "L4D2 MOD 军械库"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0"
 # 项目仓库主页（设置页展示为超链接，检查更新基于它的 releases/latest）
 REPO_URL = "https://github.com/PolysaCHride/l4d2-mod-manager"
-CARD_W, CARD_H = 240, 234
-THUMB_W, THUMB_H = 218, 122
+CARD_W, CARD_H = 230, 234
+THUMB_W, THUMB_H = 208, 122
 GRID_MIN_GAP = 10
 
 # 单击卡片即启用切换（同物品互斥）的类别
@@ -40,32 +47,39 @@ MUTEX_CATS = {"角色", "特感", "枪械", "近战", "医疗品", "投掷"}
 
 
 class TitleBar(QWidget):
-    """自绘标题栏：危险条纹 + 标题 + 窗口按钮 + 拖拽。"""
+    """品牌标题区 + 贴边的 Windows 风格窗口按钮。"""
 
     def __init__(self, window):
         super().__init__(window)
         self._win = window   # 注意：不能用 self.window，会遮蔽 QWidget.window() 方法
         self.setObjectName("TitleBar")
-        self.setFixedHeight(40)
+        self.setFixedHeight(52)
         self._drag = None
 
         h = QHBoxLayout(self)
-        h.setContentsMargins(12, 0, 0, 0)
-        h.setSpacing(8)
-        self.strip = QLabel()
-        self.strip.setFixedHeight(6)
-        self.strip.setPixmap(theme.hazard_pixmap(1600, 6))
-        self.strip.setScaledContents(True)
+        h.setContentsMargins(16, 0, 0, 0)
+        h.setSpacing(0)
 
         self.icon_lab = QLabel()
+        self.icon_lab.setObjectName("TitleIcon")
+        self.icon_lab.setFixedSize(30, 30)
+        self.icon_lab.setAlignment(Qt.AlignCenter)
         icon_pm = QPixmap(theme.icon_path("icon_32.png"))
         if not icon_pm.isNull():
             self.icon_lab.setPixmap(icon_pm.scaled(
-                18, 18, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                20, 20, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         self.title = QLabel(APP_TITLE)
+        self.title.setObjectName("AppTitle")
         h.addWidget(self.icon_lab)
+        h.addSpacing(10)
         h.addWidget(self.title)
         h.addStretch(1)
+
+        self._caption_controls = QWidget(self)
+        self._caption_controls.setObjectName("CaptionControls")
+        captions = QHBoxLayout(self._caption_controls)
+        captions.setContentsMargins(0, 0, 0, 0)
+        captions.setSpacing(0)
 
         self.btn_min = QPushButton()
         self.btn_max = QPushButton()
@@ -74,18 +88,14 @@ class TitleBar(QWidget):
         for b, kind, fn in ((self.btn_min, "min", self._min),
                             (self.btn_max, "max", self._max),
                             (self.btn_close, "close", self._close)):
-            b.setFixedSize(46, 40)
+            b.setProperty("role", "window")
+            b.setFocusPolicy(Qt.NoFocus)
+            b.setFixedSize(46, 32)
             b.setIcon(theme.caption_icon(kind))
             b.setIconSize(QSize(14, 14))
             b.clicked.connect(fn)
-            h.addWidget(b)
-
-    def paintEvent(self, event):
-        super().paintEvent(event)
-        from PySide6.QtGui import QPainter
-        p = QPainter(self)
-        p.drawPixmap(0, self.height() - 6, self.width(), 6, theme.hazard_pixmap(1600, 6))
-        p.end()
+            captions.addWidget(b)
+        h.addWidget(self._caption_controls, 0, Qt.AlignTop)
 
     # --- 拖拽 ---
     def mousePressEvent(self, e):
@@ -112,7 +122,9 @@ class TitleBar(QWidget):
         self._win.showMinimized()
 
     def _max(self):
-        if self._win.isMaximized():
+        if hasattr(self._win, "_toggle_maximized"):
+            self._win._toggle_maximized()
+        elif self._win.isMaximized():
             self._win.showNormal()
         else:
             self._win.showMaximized()
@@ -122,18 +134,22 @@ class TitleBar(QWidget):
 
 
 class CheckCircle(QWidget):
-    """圆圈 + √ 启用指示器（替代胶囊开关，点击切换）。"""
+    """带平滑填充过渡的启用指示器。"""
 
     toggled = Signal(bool)
 
     def __init__(self, checked=False, size=20, parent=None):
         super().__init__(parent)
         self._checked = bool(checked)
+        self._progress = 1.0 if checked else 0.0
         self._hover = False
         self._size = size
         self.setFixedSize(size, size)
         self.setCursor(Qt.PointingHandCursor)
         self.setToolTip("启用 / 禁用")
+        self._animation = QPropertyAnimation(self, b"checkProgress", self)
+        self._animation.setDuration(190)
+        self._animation.setEasingCurve(QEasingCurve.OutCubic)
 
     def isChecked(self):
         return self._checked
@@ -141,7 +157,25 @@ class CheckCircle(QWidget):
     def setChecked(self, checked):
         if self._checked != bool(checked):
             self._checked = bool(checked)
-            self.update()
+            self._animate_to(1.0 if self._checked else 0.0)
+
+    @Property(float)
+    def checkProgress(self):
+        return self._progress
+
+    @checkProgress.setter
+    def checkProgress(self, value):
+        self._progress = max(0.0, min(1.0, float(value)))
+        self.update()
+
+    def _animate_to(self, value):
+        self._animation.stop()
+        if not motion_enabled():
+            self.checkProgress = value
+            return
+        self._animation.setStartValue(self._progress)
+        self._animation.setEndValue(value)
+        self._animation.start()
 
     def sizeHint(self):
         return QSize(self._size, self._size)
@@ -157,20 +191,35 @@ class CheckCircle(QWidget):
     def mousePressEvent(self, e):
         if e.button() == Qt.LeftButton:
             self._checked = not self._checked
-            self.update()
+            self._animate_to(1.0 if self._checked else 0.0)
             self.toggled.emit(self._checked)
 
     def paintEvent(self, _e):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        if self._checked:
-            p.drawPixmap(0, 0, theme.check_badge_pixmap(self._size))
-        else:
-            pen = QPen(QColor(theme.GREEN if self._hover else theme.BORDER_L))
-            pen.setWidthF(1.5)
-            p.setPen(pen)
-            p.setBrush(QColor("#0c0e07"))
-            p.drawEllipse(1, 1, self._size - 2, self._size - 2)
+        progress = self._progress
+        ring = QColor(theme.BORDER_L)
+        if self._hover:
+            ring = QColor(theme.GREEN)
+        fill = QColor(theme.GREEN)
+        fill.setAlpha(int(38 + 207 * progress))
+        pen = QPen(ring)
+        pen.setWidthF(1.5 + 0.3 * progress)
+        p.setPen(pen)
+        p.setBrush(fill if progress > 0 else QColor("#0c0e07"))
+        p.drawEllipse(1, 1, self._size - 2, self._size - 2)
+        if progress > 0.01:
+            check = QPen(QColor(theme.PANEL2))
+            check.setWidthF(2.0)
+            check.setCapStyle(Qt.RoundCap)
+            check.setJoinStyle(Qt.RoundJoin)
+            check.setColor(QColor(20, 24, 14, int(255 * progress)))
+            p.setPen(check)
+            s = self._size
+            p.drawLine(QPoint(int(s * 0.28), int(s * 0.52)),
+                       QPoint(int(s * 0.44), int(s * 0.68)))
+            p.drawLine(QPoint(int(s * 0.44), int(s * 0.68)),
+                       QPoint(int(s * 0.73), int(s * 0.34)))
         p.end()
 
 
@@ -182,6 +231,11 @@ class ModCard(QFrame):
         self.setObjectName("ModCard")
         self.setFixedSize(CARD_W, CARD_H)
         self._updating = False
+        self._hover_progress = 0.0
+        self.setAttribute(Qt.WA_Hover, True)
+        self._hover_animation = QPropertyAnimation(self, b"hoverProgress", self)
+        self._hover_animation.setDuration(150)
+        self._hover_animation.setEasingCurve(QEasingCurve.OutCubic)
 
         v = QVBoxLayout(self)
         v.setContentsMargins(9, 9, 9, 8)
@@ -223,6 +277,47 @@ class ModCard(QFrame):
         self.switch.toggled.connect(self._on_toggle)
         self._apply_state()
 
+    @Property(float)
+    def hoverProgress(self):
+        return self._hover_progress
+
+    @hoverProgress.setter
+    def hoverProgress(self, value):
+        self._hover_progress = max(0.0, min(1.0, float(value)))
+        self.update()
+
+    def _animate_hover(self, target):
+        self._hover_animation.stop()
+        if not motion_enabled():
+            self.hoverProgress = target
+            return
+        self._hover_animation.setStartValue(self._hover_progress)
+        self._hover_animation.setEndValue(target)
+        self._hover_animation.start()
+
+    def enterEvent(self, event):
+        self._animate_hover(1.0)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._animate_hover(0.0)
+        super().leaveEvent(event)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self._hover_progress <= 0.01:
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        border = QColor(theme.GREEN)
+        border.setAlpha(int(60 + 125 * self._hover_progress))
+        pen = QPen(border)
+        pen.setWidthF(1.0 + self._hover_progress * 0.35)
+        p.setPen(pen)
+        p.setBrush(Qt.NoBrush)
+        p.drawRoundedRect(self.rect().adjusted(1, 1, -1, -1), 12, 12)
+        p.end()
+
     def _apply_state(self):
         on = bool(self.rec.get("enabled"))
         new_state = "on" if on else "off"
@@ -232,7 +327,8 @@ class ModCard(QFrame):
             self.style().polish(self)
         self.thumb.setPixmap(util.load_thumb(
             self.rec.get("preview") or "", THUMB_W - 2, THUMB_H - 2,
-            self.rec.get("category", "未分类"), item=self.rec.get("item") or ""))
+            self.rec.get("category", "未分类"), item=self.rec.get("item") or "",
+            radius=9))
 
     def refresh_record(self, rec):
         self.rec = rec
@@ -262,10 +358,7 @@ class ModCard(QFrame):
     def mouseDoubleClickEvent(self, e):
         if e.button() != Qt.LeftButton:
             return
-        if self.rec.get("category") == "地图":
-            self.main.open_chapters(self.rec)
-        else:
-            self.switch.toggle()
+        self.switch.toggle()
 
     def contextMenuEvent(self, e):
         self.main.show_card_menu(self, e.globalPos())
@@ -275,10 +368,14 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(APP_TITLE)
-        self.setWindowFlags(Qt.FramelessWindowHint)
+        self.setObjectName("AppWindow")
+        self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
         self.setWindowIcon(QIcon(theme.icon_path()))
-        self.resize(1280, 780)
-        self.setMinimumSize(1120, 700)
+        self.resize(1320, 820)
+        self.setMinimumSize(1100, 700)
+        self._intro_shown = False
+        self._page_animation = None
 
         self.store = Store(self._data_dir())
         steam_api.set_proxy(self.store.settings().get("proxy", ""))
@@ -286,7 +383,6 @@ class MainWindow(QMainWindow):
         self.library = None
         self._scan_worker = None
         self._rescan_pending = False
-        self._import_worker = None
         self._dl_worker = None
         self._assign_worker = None
         self._update_worker = None
@@ -330,8 +426,7 @@ class MainWindow(QMainWindow):
 
     # ---------- 路径 ----------
     def _data_dir(self):
-        base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        return os.path.join(base, "data")
+        return app_paths.data_dir()
 
     def apply_game_dir(self, first=False):
         gd = self.store.settings().get("game_dir", "")
@@ -354,13 +449,32 @@ class MainWindow(QMainWindow):
     # ---------- UI ----------
     def _build_ui(self):
         central = QWidget()
-        root = QVBoxLayout(central)
+        central.setObjectName("WindowCanvas")
+        self._window_layout = QVBoxLayout(central)
+        # 可见边框必须贴住窗口矩形；在边框外额外留透明投影区会让
+        # DWM 的实际窗口边界与用户看到的边框错位，缩放热区也无法对齐。
+        self._window_layout.setContentsMargins(0, 0, 0, 0)
+        self._window_layout.setSpacing(0)
+
+        self.surface = QFrame()
+        self.surface.setObjectName("AppSurface")
+        self._window_layout.addWidget(self.surface)
+
+        root = QVBoxLayout(self.surface)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
         self.titlebar = TitleBar(self)
         root.addWidget(self.titlebar)
 
+        hazard = QLabel()
+        hazard.setObjectName("HazardDivider")
+        hazard.setFixedHeight(4)
+        hazard.setPixmap(theme.hazard_pixmap(1600, 4))
+        hazard.setScaledContents(True)
+        root.addWidget(hazard)
+
         body = QWidget()
+        body.setObjectName("WindowBody")
         outer = QVBoxLayout(body)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
@@ -368,33 +482,39 @@ class MainWindow(QMainWindow):
 
         # 一级导航栏常驻左侧；右侧为页面堆栈（mod 浏览 / 设置）
         content = QHBoxLayout()
-        content.setContentsMargins(0, 0, 0, 0)
-        content.setSpacing(0)
+        content.setContentsMargins(10, 10, 10, 10)
+        content.setSpacing(8)
         outer.addLayout(content, 1)
 
         # ---- 分类栏：角色/枪械/地图 一级，其余收进「其他」二级 ----
         rail = QWidget()
         rail.setObjectName("Rail")
-        rail.setMinimumWidth(64)
+        rail.setFixedWidth(78)
         rv = QVBoxLayout(rail)
-        rv.setContentsMargins(6, 10, 6, 10)
-        rv.setSpacing(4)
+        rv.setContentsMargins(7, 14, 7, 12)
+        rv.setSpacing(6)
         self.rail_buttons = {}
         for c in ("全部", "角色", "武器", "地图", "其他"):
             b = QPushButton(c)
+            b.setObjectName("RailButton")
             b.setCheckable(True)
+            b.setFixedHeight(44)
             b.setCursor(Qt.PointingHandCursor)
             b.clicked.connect(lambda _=False, cat=c: self.select_category(cat))
             rv.addWidget(b)
             self.rail_buttons[c] = b
         rv.addStretch(1)
         b_adopt = QPushButton("一键\n管理")
+        b_adopt.setObjectName("RailUtility")
+        b_adopt.setFixedHeight(48)
         b_adopt.setToolTip("把所有 mod 纳入管理：workshop 订阅全部移出并前移一级、\n"
                            "子目录 vpk 收拢、未登记的顶层 mod 补记。\n"
                            "冲突外观组按名称只启用一个（完成后提示退订）")
         b_adopt.clicked.connect(self.adopt_all_flow)
         self.btn_settings_nav = QPushButton("设置")
+        self.btn_settings_nav.setObjectName("RailButton")
         self.btn_settings_nav.setCheckable(True)
+        self.btn_settings_nav.setFixedHeight(44)
         self.btn_settings_nav.setCursor(Qt.PointingHandCursor)
         self.btn_settings_nav.clicked.connect(self.show_settings)
         rv.addWidget(b_adopt)
@@ -403,21 +523,24 @@ class MainWindow(QMainWindow):
 
         # 右侧页面堆栈：page0 = 三栏浏览器，page1 = 设置页
         self.stack = QStackedWidget()
+        self.stack.setObjectName("PageStack")
         content.addWidget(self.stack, 1)
 
         # 三栏改用 QSplitter：边界可拖拽调宽
         self.splitter = QSplitter(Qt.Horizontal)
-        self.splitter.setHandleWidth(5)
+        self.splitter.setObjectName("WorkspaceSplitter")
+        self.splitter.setHandleWidth(4)
         self.splitter.setChildrenCollapsible(False)
 
         # ---- 二级分类栏（仅「其他」时向右展开） ----
         catpane = QWidget()
-        catpane.setMinimumWidth(130)
+        catpane.setObjectName("SidePane")
+        catpane.setMinimumWidth(150)
         cv = QVBoxLayout(catpane)
-        cv.setContentsMargins(8, 10, 4, 10)
-        cv.setSpacing(6)
-        self.cat_title = QLabel("其他 · 分类")
-        self.cat_title.setObjectName("Hint")
+        cv.setContentsMargins(12, 14, 12, 12)
+        cv.setSpacing(8)
+        self.cat_title = QLabel("其他")
+        self.cat_title.setObjectName("PaneTitle")
         cv.addWidget(self.cat_title)
         self.cat_list = QListWidget()
         self.cat_list.currentRowChanged.connect(self._on_sub_selected)
@@ -428,12 +551,13 @@ class MainWindow(QMainWindow):
 
         # ---- 物品栏 ----
         itempane = QWidget()
+        itempane.setObjectName("SidePane")
         itempane.setMinimumWidth(150)
         iv = QVBoxLayout(itempane)
-        iv.setContentsMargins(8, 10, 4, 10)
-        iv.setSpacing(6)
+        iv.setContentsMargins(12, 14, 12, 12)
+        iv.setSpacing(8)
         self.item_title = QLabel("物品")
-        self.item_title.setObjectName("Hint")
+        self.item_title.setObjectName("PaneTitle")
         iv.addWidget(self.item_title)
         self.item_list = QListWidget()
         self.item_list.currentRowChanged.connect(self._on_item_selected)
@@ -444,12 +568,20 @@ class MainWindow(QMainWindow):
 
         # ---- 主区 ----
         mainpane = QWidget()
+        mainpane.setObjectName("BrowserPane")
         mv = QVBoxLayout(mainpane)
-        mv.setContentsMargins(10, 10, 12, 8)
-        mv.setSpacing(8)
-        bar = QHBoxLayout()
+        mv.setContentsMargins(10, 10, 10, 10)
+        mv.setSpacing(10)
+        action_bar = QFrame()
+        action_bar.setObjectName("ActionBar")
+        bar = QHBoxLayout(action_bar)
+        bar.setContentsMargins(9, 9, 9, 9)
+        bar.setSpacing(8)
         self.search = QLineEdit()
-        self.search.setPlaceholderText("搜索名称、别名、标签、物品…（当前分类 / 物品内搜索）")
+        self.search.setObjectName("SearchField")
+        self.search.setMinimumHeight(36)
+        self.search.setPlaceholderText("搜索名称、别名、标签、物品…")
+        self.search.setToolTip("在当前分类 / 物品内搜索")
         # 输入防抖：停止输入 250ms 后再刷新，避免每个字符全量重排
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
@@ -457,18 +589,28 @@ class MainWindow(QMainWindow):
         self._search_timer.timeout.connect(self.refresh_cards)
         self.search.textChanged.connect(lambda _s: self._search_timer.start())
         self.sort_combo = QComboBox()
+        self.sort_combo.setMinimumHeight(36)
+        self.sort_combo.setMinimumWidth(112)
         self.sort_combo.addItems(["名称", "最近添加", "大小", "启用优先"])
         self.sort_combo.currentIndexChanged.connect(lambda _i: self.refresh_cards())
         b_refresh = QPushButton("刷新")
+        b_refresh.setObjectName("ToolButton")
+        b_refresh.setMinimumHeight(36)
         b_refresh.setToolTip("重新扫描 addons 顶层：拾取手动放入的新 mod、\n"
                              "同步游戏内菜单的启用/禁用改动（快捷键 F5）\n"
                              "Steam 新订阅在 addons/workshop，请用左侧「一键管理」纳管")
         b_refresh.clicked.connect(self.start_rescan)
         b_import = QPushButton("导入压缩包")
+        b_import.setObjectName("ToolButton")
+        b_import.setMinimumHeight(36)
         b_import.clicked.connect(self.do_import)
         b_ws = QPushButton("工坊下载")
+        b_ws.setObjectName("ToolButton")
+        b_ws.setMinimumHeight(36)
         b_ws.clicked.connect(self.open_workshop)
         b_launch = QPushButton("▶ 启动游戏")
+        b_launch.setObjectName("LaunchButton")
+        b_launch.setMinimumHeight(36)
         b_launch.setProperty("accent", "primary")
         b_launch.clicked.connect(self.launch_game)
         bar.addWidget(self.search, 1)
@@ -477,9 +619,10 @@ class MainWindow(QMainWindow):
         bar.addWidget(b_import)
         bar.addWidget(b_ws)
         bar.addWidget(b_launch)
-        mv.addLayout(bar)
+        mv.addWidget(action_bar)
 
         self.scroll = QScrollArea()
+        self.scroll.setObjectName("CardScroll")
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.NoFrame)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -494,7 +637,7 @@ class MainWindow(QMainWindow):
         mainpane.setMinimumWidth(420)
         self.splitter.addWidget(mainpane)
         self.splitter.setStretchFactor(2, 1)
-        self.splitter.setSizes([190, 220, 940])
+        self.splitter.setSizes([190, 150, 940])
         self.splitter.splitterMoved.connect(self._update_cards_layout)
         self.stack.addWidget(self.splitter)
 
@@ -504,9 +647,10 @@ class MainWindow(QMainWindow):
         # ---- 状态栏 ----
         status = QWidget()
         status.setObjectName("StatusBar")
-        status.setFixedHeight(30)
+        status.setFixedHeight(34)
+        self.status_bar = status
         sh = QHBoxLayout(status)
-        sh.setContentsMargins(12, 0, 12, 0)
+        sh.setContentsMargins(16, 0, 16, 0)
         self.game_label = QLabel("● 检测中")
         self.count_label = QLabel("")
         self.path_label = QLabel("")
@@ -544,8 +688,66 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._intro_shown:
+            self._intro_shown = True
+            QTimer.singleShot(0, lambda: fade_in_window(self, duration=220, start_opacity=0.0))
+
+    def _toggle_maximized(self):
+        if self.isMaximized():
+            self.showNormal()
+        else:
+            self.showMaximized()
+        QTimer.singleShot(0, self._sync_window_chrome)
+
+    def _sync_window_chrome(self):
+        if not hasattr(self, "surface"):
+            return
+        maximized = self.isMaximized()
+        self._window_layout.setContentsMargins(0, 0, 0, 0)
+        for widget in (self.surface, self.titlebar, getattr(self, "status_bar", None)):
+            if widget is None:
+                continue
+            widget.setProperty("windowMaximized", maximized)
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
+        self.titlebar.btn_close.setProperty("windowMaximized", maximized)
+        self.titlebar.btn_close.style().unpolish(self.titlebar.btn_close)
+        self.titlebar.btn_close.style().polish(self.titlebar.btn_close)
+        self.titlebar.btn_max.setIcon(theme.caption_icon(
+            "restore" if maximized else "max"))
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.WindowStateChange:
+            self._sync_window_chrome()
+
+    def _animate_page_switch(self):
+        if not motion_enabled() or not hasattr(self, "stack"):
+            return
+        old_anim = getattr(self, "_page_animation", None)
+        if old_anim is not None:
+            old_anim.stop()
+        effect = QGraphicsOpacityEffect(self.stack)
+        self.stack.setGraphicsEffect(effect)
+        anim = QPropertyAnimation(effect, b"opacity", self)
+        anim.setDuration(170)
+        anim.setStartValue(0.35)
+        anim.setEndValue(1.0)
+        anim.setEasingCurve(QEasingCurve.OutCubic)
+
+        def cleanup():
+            if self._page_animation is anim:
+                self.stack.setGraphicsEffect(None)
+                self._page_animation = None
+
+        anim.finished.connect(cleanup)
+        self._page_animation = anim
+        anim.start(QAbstractAnimation.DeleteWhenStopped)
+
     # ---------- 无边框窗口边缘缩放 ----------
-    _EDGE = 6
+    _EDGE = 8
     _CURSORS = {
         1: Qt.SizeHorCursor, 2: Qt.SizeHorCursor,
         4: Qt.SizeVerCursor, 8: Qt.SizeVerCursor,
@@ -553,26 +755,19 @@ class MainWindow(QMainWindow):
         6: Qt.SizeBDiagCursor, 9: Qt.SizeBDiagCursor,
     }
 
-    def _over_caption_buttons(self, gp):
-        tb = getattr(self, "titlebar", None)
-        if tb is None:
-            return False
-        origin = tb.mapToGlobal(QPoint(0, 0))
-        for b in (tb.btn_min, tb.btn_max, tb.btn_close):
-            if b.isVisible() and b.geometry().translated(origin).contains(gp):
-                return True
-        return False
-
     def _edges_at(self, gp):
         if self.isMaximized() or QApplication.activeWindow() is not self:
             return 0
-        f = self.frameGeometry()
-        left = gp.x() - f.left() <= self._EDGE
-        right = f.right() - gp.x() <= self._EDGE
-        top = gp.y() - f.top() <= self._EDGE
-        bottom = f.bottom() - gp.y() <= self._EDGE
-        if top and self._over_caption_buttons(gp):
-            top = False  # 右上角按钮区让位给点击
+        # 用窗口自身坐标计算，和 QSS 绘制出来的可见边框使用同一矩形。
+        # frameGeometry() 在 Windows 无边框/透明窗口上可能包含不可见边缘，
+        # 正是它导致了“看得到边框，却拖不到”的问题。
+        p = self.mapFromGlobal(gp)
+        if not self.rect().contains(p):
+            return 0
+        left = p.x() < self._EDGE
+        right = self.rect().right() - p.x() < self._EDGE
+        top = p.y() < self._EDGE
+        bottom = self.rect().bottom() - p.y() < self._EDGE
         v = 0
         if left:
             v |= 1
@@ -688,8 +883,7 @@ class MainWindow(QMainWindow):
         """自动监视：目录/addonlist 变化 → 自动重扫（无工作线程运行时）。"""
         if self.library is None or self.paths is None:
             return
-        if (self._scan_worker and self._scan_worker.isRunning()) or \
-                (self._import_worker and self._import_worker.isRunning()):
+        if self._scan_worker and self._scan_worker.isRunning():
             return
         snap = self._current_snapshot()
         if snap is None:
@@ -732,22 +926,24 @@ class MainWindow(QMainWindow):
             mods = [m for m in mods if m["category"] == cat]
         byfile = set(m["file"] for m in mods)
         entries = [("全部 (%d)" % len(mods), "all", None)]
+        collection_file_sets = set()
         # 地图分类下：合集以文件夹形态展示
         if cat == "地图":
             for cid, info in self.store.collections().items():
                 files = [f for f in info.get("files", []) if f in byfile]
                 if files:
+                    collection_file_sets.add(frozenset(files))
                     entries.append(("📁 %s (%d)" % (info.get("name", "合集"), len(files)),
                                     "collection", cid))
-        items = {}
+        item_files = {}
         for m in mods:
-            items[m.get("item", "")] = items.get(m.get("item", ""), 0) + 1
-        ordered = sorted(items.items(), key=lambda kv: (-kv[1], kv[0]))
-        if "" in items:
-            entries.append(("未指定 / 多项 (%d)" % items[""], "item", ""))
-        for name, n in ordered:
-            if name:
-                entries.append(("%s (%d)" % (name, n), "item", name))
+            item_files.setdefault(m.get("item", ""), set()).add(m["file"])
+        ordered = sorted(item_files.items(), key=lambda kv: (-len(kv[1]), kv[0]))
+        if "" in item_files and frozenset(item_files[""]) not in collection_file_sets:
+            entries.append(("未指定 / 多项 (%d)" % len(item_files[""]), "item", ""))
+        for name, group_files in ordered:
+            if name and frozenset(group_files) not in collection_file_sets:
+                entries.append(("%s (%d)" % (name, len(group_files)), "item", name))
         self._item_entries = entries
         for label, _kind, _val in entries:
             QListWidgetItem(label, self.item_list)
@@ -778,10 +974,9 @@ class MainWindow(QMainWindow):
             self._current_collection = val if kind == "collection" else None
             if kind == "collection":
                 info = self.store.get_collection(val) or {}
-                self.item_title.setText("📁 %s · 部件" % info.get("name", "合集"))
+                self.item_title.setText("📁 %s" % info.get("name", "合集"))
             else:
-                self.item_title.setText("%s · 物品" % self._current_category
-                                        if self._current_category != "全部" else "全部 · 物品")
+                self.item_title.setText(self._current_category)
         else:
             self._current_kind = "all"
             self._current_item = None
@@ -966,6 +1161,7 @@ class MainWindow(QMainWindow):
     def select_category(self, cat):
         """导航入口：一级类别直接选；子类别先展开所属分支再选。"""
         self.stack.setCurrentIndex(0)
+        self._animate_page_switch()
         self.btn_settings_nav.setChecked(False)
         if cat in ("全部", "角色", "武器", "地图", "其他"):
             self._select_top(cat)
@@ -1011,7 +1207,7 @@ class MainWindow(QMainWindow):
             c = m.get("category", "未分类")
             counts[c] = counts.get(c, 0) + 1
         self._cat_entries = self._catpane_entries()
-        self.cat_title.setText("%s · 分类" % self._current_top)
+        self.cat_title.setText(self._current_top)
         self.cat_list.blockSignals(True)
         self.cat_list.clear()
         for cat in self._cat_entries:
@@ -1032,9 +1228,9 @@ class MainWindow(QMainWindow):
     def _adjust_splitter(self):
         total = sum(self.splitter.sizes())
         if self.catpane.isVisible():
-            self.splitter.setSizes([76, 150, 190, max(420, total - 416)])
+            self.splitter.setSizes([160, 150, max(420, total - 310)])
         else:
-            self.splitter.setSizes([76, 0, 190, max(420, total - 266)])
+            self.splitter.setSizes([0, 150, max(420, total - 150)])
 
     def toggle_mod(self, file_name, enabled):
         if self.library is None:
@@ -1062,11 +1258,10 @@ class MainWindow(QMainWindow):
             return
         if QMessageBox.question(
                 self, "一键纳入管理",
-                "将递归扫描 addons 目录并把所有 vpk 纳入管理：\n\n"
-                "· 顶层未登记的 mod → 补记为启用（保持游戏当前加载状态）\n"
-                "· 子目录中的 mod → 移到顶层并登记为禁用（addonlist 记 0，游戏原本不加载子目录）\n"
-                "· 冲突外观组 → 按名称只启用一个；一键管理前的选择优先保留\n"
-                "· addons/workshop 订阅项 → 迁移到顶层（保留启用状态，建议随后退订）\n\n"
+                "将递归扫描 addons 目录并把所有 vpk(mod文件) 加入到模组管理器中：\n\n"
+                "· 登记addons中没有登记在模组管理器中的mod\n"
+                "· 将workshop中的mod全部往外移至addons中，避免每次进入游戏需要验证mod文件 \n（建议移出mod文件后将模组取消订阅，避免重复下载）\n"
+                "· 武器外观、人物外观类会冲突的mod默认只启用一个\n\n"
                 "继续？") != QMessageBox.Yes:
             return
         QApplication.setOverrideCursor(Qt.WaitCursor)
@@ -1090,13 +1285,6 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "一键管理完成", msg)
         if stats.get("migrated_ids"):
             self._show_unsubscribe_dialog(stats["migrated_ids"])
-
-    def open_chapters(self, rec):
-        r = self.store.get_mod(rec["file"]) or rec
-        if not r.get("chapters"):
-            QMessageBox.information(self, "章节", "该 mod 未解析到章节信息（可能不是战役）")
-            return
-        ChaptersDialog(self, r).exec()
 
     def _confirm_delete(self, title, text):
         """删除确认弹窗，支持勾选「今日不再提醒」。"""
@@ -1193,7 +1381,8 @@ class MainWindow(QMainWindow):
 
     def rename_collection(self, cid):
         info = self.store.get_collection(cid) or {}
-        text, ok = QInputDialog.getText(self, "重命名合集", "合集名称：", text=info.get("name", ""))
+        text, ok = QInputDialog.getText(
+            None, "重命名合集", "合集名称：", text=info.get("name", ""))
         if ok and text.strip():
             info["name"] = text.strip()
             self.store.upsert_collection(cid, info)
@@ -1324,8 +1513,8 @@ class MainWindow(QMainWindow):
     def show_card_menu(self, card, global_pos):
         rec = card.rec
         menu = QMenu(self)
-        a_alias = menu.addAction("设置别名…")
-        a_cat = menu.addAction("修改分类…")
+        a_alias = menu.addAction("设置别名")
+        a_cat = menu.addAction("修改分类")
         a_assign = a_leave = None
         if rec.get("category") == "地图":
             menu.addSeparator()
@@ -1334,17 +1523,16 @@ class MainWindow(QMainWindow):
             else:
                 a_assign = menu.addAction("归入合集…")
         menu.addSeparator()
-        a_chapters = menu.addAction("章节 / 一键进图…") if rec.get("chapters") else None
-        a_detail = menu.addAction("详情…")
+        a_detail = menu.addAction("详情")
         a_page = menu.addAction("打开工坊页") if rec.get("workshop_id") else None
-        a_folder = menu.addAction("打开 addons 文件夹")
+        a_folder = menu.addAction("打开 mod 所在位置")
         menu.addSeparator()
-        a_del = menu.addAction("删除（移入回收站）…")
+        a_del = menu.addAction("删除（移入回收站）")
         act = menu.exec(global_pos)
         if act is None:
             return
         if act == a_alias:
-            text, ok = QInputDialog.getText(self, "设置别名",
+            text, ok = QInputDialog.getText(None, "设置别名",
                                             "别名（留空清除）：", text=rec.get("alias", ""))
             if ok:
                 self.library.set_alias(rec["file"], text)
@@ -1366,14 +1554,12 @@ class MainWindow(QMainWindow):
             self.store.save_library()
             self.refresh_items()
             self.refresh_cards()
-        elif a_chapters and act == a_chapters:
-            self.open_chapters(rec)
         elif act == a_detail:
             DetailDialog(self, self.store.get_mod(rec["file"]) or rec).exec()
         elif a_page and act == a_page:
             gamemod.open_workshop_page(rec["workshop_id"])
         elif act == a_folder:
-            gamemod.open_folder(self.library.paths.addons_dir)
+            self.library.reveal_mod(rec["file"])
         elif act == a_del:
             self.delete_mod_flow(rec["file"])
 
@@ -1389,31 +1575,22 @@ class MainWindow(QMainWindow):
             return
         if not self.ensure_game_closed():
             return
-        if self._import_worker is not None and self._import_worker.isRunning():
-            QMessageBox.information(self, "导入中", "已有导入任务在进行，请等它完成")
-            return
-        files, _filter = QFileDialog.getOpenFileNames(
-            self, "选择压缩包", "", "压缩包 (*.zip *.7z *.rar)")
-        if not files:
-            return
-        worker = ImportWorker(self.library, files)
-        self._import_worker = worker
-        worker.done.connect(self._on_import_done)
-        worker.error.connect(
-            lambda e: (QMessageBox.warning(self, "导入失败", e), self.count_label.setText("导入失败")))
-        worker.finished.connect(lambda w=worker: self._release_worker(w, "_import_worker"))
-        self.count_label.setText("导入中…")
-        worker.start()
+        dialog = ImportArchiveDialog(self)
+        if dialog.exec() == QDialog.Accepted:
+            self._on_import_done(dialog.imported, dialog.duplicate_count)
 
-    def _on_import_done(self, recs):
+    def _on_import_done(self, recs, duplicate_count=0):
         self.count_label.setText("导入完成：%d 个 mod" % len(recs))
         self.refresh_items()
         self.refresh_cards()
         if recs:
             names = "\n".join("· %s（%s / %s）" % (r["title"] or r["file"], r["category"], r["item"] or "—")
                               for r in recs[:12])
+            duplicate_note = ("\n已自动跳过 %d 个重复 mod。" % duplicate_count
+                              if duplicate_count else "")
             QMessageBox.information(self, "导入完成",
-                                    "已导入 %d 个 mod（默认禁用，导入后在对应分类下开启）：\n%s" % (len(recs), names))
+                                    "已导入 %d 个 mod：\n%s%s"
+                                    % (len(recs), names, duplicate_note))
 
     def open_workshop(self):
         if self.library is None:
@@ -1425,10 +1602,11 @@ class MainWindow(QMainWindow):
 
     def _show_unsubscribe_dialog(self, ids):
         """一键管理迁移了 workshop 订阅项后，提示退订（防 Steam 重新同步）。"""
-        dlg = QDialog(self)
-        dlg.setWindowTitle("退订已迁移的工坊物品")
+        dlg = AppDialog(self, "退订已迁移的工坊物品")
         dlg.setMinimumSize(430, 330)
-        v = QVBoxLayout(dlg)
+        v = QVBoxLayout(dlg.content)
+        v.setContentsMargins(20, 16, 20, 18)
+        v.setSpacing(10)
         hint = QLabel("以下物品已从 addons/workshop 迁入管理。\n"
                       "建议在 Steam 中退订，否则 Steam 可能把文件重新同步回 workshop 目录。\n"
                       "双击条目或点「打开全部工坊页」逐个退订。")
@@ -1454,6 +1632,7 @@ class MainWindow(QMainWindow):
     # ---------- 设置页 ----------
     def show_settings(self):
         self.stack.setCurrentIndex(1)
+        self._animate_page_switch()
         for b in self.rail_buttons.values():
             b.setChecked(False)
         self.btn_settings_nav.setChecked(True)
@@ -1510,6 +1689,7 @@ class MainWindow(QMainWindow):
         self._settings_section(outer, "配置目录")
         self._st_game_sub = self._sub_label()
         right1 = QWidget()
+        right1.setObjectName("SettingsActionHost")
         h1 = QHBoxLayout(right1)
         h1.setContentsMargins(0, 0, 0, 0)
         h1.setSpacing(6)
@@ -1538,6 +1718,7 @@ class MainWindow(QMainWindow):
         self._st_autocheck = QCheckBox()
         self._st_autocheck.setChecked(bool(self.store.settings().get("check_update_on_start", False)))
         right_auto = QWidget()
+        right_auto.setObjectName("SettingsActionHost")
         ha = QHBoxLayout(right_auto)
         ha.setContentsMargins(0, 0, 0, 0)
         ha.setSpacing(8)
@@ -1560,6 +1741,7 @@ class MainWindow(QMainWindow):
         right_repo = None
         if REPO_URL:
             right_repo = QWidget()
+            right_repo.setObjectName("SettingsActionHost")
             hr = QHBoxLayout(right_repo)
             hr.setContentsMargins(0, 0, 0, 0)
             link = QLabel('<a href="%s" style="color:%s; text-decoration:none;">打开 github 项目</a>'
@@ -1601,7 +1783,8 @@ class MainWindow(QMainWindow):
             self._st_cache_sub.setText("清理回收站与临时文件")
 
     def _browse_game(self):
-        d = QFileDialog.getExistingDirectory(self, "选择 L4D2 游戏目录（含 left4dead2 文件夹）")
+        d = QFileDialog.getExistingDirectory(
+            None, "选择 L4D2 游戏目录（含 left4dead2 文件夹）")
         if not d:
             return
         if not pathsmod.is_game_dir(d):
@@ -1622,7 +1805,7 @@ class MainWindow(QMainWindow):
 
     def _edit_proxy(self):
         cur = self.store.settings().get("proxy", "")
-        text, ok = QInputDialog.getText(self, "网络代理",
+        text, ok = QInputDialog.getText(None, "网络代理",
                                         "代理地址（留空 = 自动探测本地代理）：", text=cur)
         if not ok:
             return
@@ -1704,8 +1887,6 @@ class MainWindow(QMainWindow):
 
     # ---------- 退出 ----------
     def closeEvent(self, e):
-        if self._import_worker and self._import_worker.isRunning():
-            self._import_worker.wait(2000)
         if self._scan_worker and self._scan_worker.isRunning():
             self._scan_worker.wait(2000)
         try:

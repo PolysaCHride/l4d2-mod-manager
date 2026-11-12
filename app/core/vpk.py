@@ -320,33 +320,3 @@ def extract_mission(vpk):
     if not isinstance(mission, dict):
         mission = kv if kv else None
     return mission, mission_path
-
-
-def extract_chapters(mission):
-    """从 mission dict 提取合作章节 [{"map":..., "name":...}]。"""
-    chapters = []
-    if not isinstance(mission, dict):
-        return chapters
-    modes = mission.get("modes")
-    if not isinstance(modes, dict) or not modes:
-        return chapters
-    mode = modes.get("coop")
-    if not isinstance(mode, dict):
-        mode = next(iter(modes.values()), None)
-    if not isinstance(mode, dict):
-        return chapters
-
-    def _order_key(k):
-        try:
-            return (0, int(k))
-        except (TypeError, ValueError):
-            return (1, str(k))
-
-    for key in sorted(mode.keys(), key=_order_key):
-        chapter = mode[key]
-        if isinstance(chapter, dict) and chapter.get("Map"):
-            chapters.append({
-                "map": str(chapter.get("Map", "")),
-                "name": str(chapter.get("DisplayName", "")) or str(chapter.get("Map", "")),
-            })
-    return chapters

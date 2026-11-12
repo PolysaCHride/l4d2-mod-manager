@@ -26,6 +26,12 @@ build/
 dist/
 release/
 
+# Local development tools and working files
+.codex/
+.zcode/
+/image*.png
+/README.md备份
+
 # Editor and OS files
 .idea/
 .vscode/

@@ -36,7 +36,6 @@ def new_mod_record(file_name):
         "workshop_id": "",           # 数字字符串，非工坊来源为空
         "preview": "",               # 预览图绝对路径（可为空）
         "enabled": False,
-        "chapters": [],              # 战役章节 [{"map":..., "name":...}]
         "added_at": int(time.time()),
         "updated_at": 0,
         "source": "",                # "import" / "download" / "migrate" / "scan" / "adopt"

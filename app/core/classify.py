@@ -298,7 +298,7 @@ def classify_paths(paths, addoninfo=None, mission=None, hint=""):
     if has_bsp:
         return ("地图", "", tags)
 
-    # 2.5) 官方资源白名单（参考项目数据：mdl/vtf/vmt stem + 路径规则）
+    # 2.5) 官方资源白名单
     cands = set()
     for p in paths:
         base = p.rsplit("/", 1)[-1]
