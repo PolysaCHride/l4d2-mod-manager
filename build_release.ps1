@@ -60,7 +60,9 @@ if (Test-Path -LiteralPath $runtimeDataDir) {
     Remove-Item -LiteralPath $runtimeDataDir -Recurse -Force
 }
 
-foreach ($name in @("README.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "CHANGELOG.md")) {
+foreach ($name in @(
+        "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "CHANGELOG.md",
+        "image.png", "image-1.png", "image-2.png", "image-3.png")) {
     Copy-Item -LiteralPath (Join-Path $projectRoot $name) `
         -Destination (Join-Path $packageDir $name)
 }
