@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..core import game as gamemod
+from ..core import archiver as archiver_core
 from ..core import importer
 from ..core import steam_api
 from ..core.classify import CATEGORIES, MELEE_NAMES, MED_NAMES, SPECIAL_NAMES, SURVIVOR_NAMES, WEAPON_SEG_NAMES
@@ -26,8 +27,8 @@ from .components import (
     AnimatedProgressBar, AppDialog, AppMessageBox as QMessageBox, motion_enabled,
 )
 from .workers import (
-    DetailsWorker, DownloadWorker, ImportAnalyzeWorker, ImportCommitWorker,
-    MigrateWorker, ParentCollectionWorker,
+    ArchiverInstallWorker, DetailsWorker, DownloadWorker, ImportAnalyzeWorker,
+    ImportCommitWorker, MigrateWorker, ParentCollectionWorker,
 )
 
 L4D2_APPID = steam_api.L4D2_APPID
@@ -140,6 +141,139 @@ class ArchiveDropZone(QFrame):
             event.accept()
             return
         super().mouseReleaseEvent(event)
+
+
+class MissingArchiverDialog(AppDialog):
+    """7z/RAR import fallback when no usable archiver can be found."""
+
+    def __init__(self, main):
+        super().__init__(main, "缺少解压组件")
+        self.main = main
+        self.archiver_path = ""
+        self._worker = None
+        self.resize(590, 390)
+        self.setMinimumSize(540, 360)
+
+        root = QVBoxLayout(self.content)
+        root.setContentsMargins(24, 20, 24, 20)
+        root.setSpacing(14)
+
+        title = QLabel("需要 7-Zip 解压组件")
+        title.setObjectName("ImportResultTitle")
+        root.addWidget(title)
+
+        body = QLabel(
+            "当前没有找到可用的 7-Zip 或 WinRAR，无法读取 7z / RAR 压缩包。\n"
+            "可以自动下载并校验 7-Zip 官方组件，安装到软件自己的数据目录，"
+            "不会修改系统环境；也可以手动指定已有的 7z.exe。")
+        body.setObjectName("Hint")
+        body.setWordWrap(True)
+        root.addWidget(body)
+
+        self.status_label = QLabel("请选择处理方式")
+        self.status_label.setObjectName("ImportStatus")
+        self.status_label.setWordWrap(True)
+        root.addWidget(self.status_label)
+
+        self.progress = AnimatedProgressBar()
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        self.progress.setTextVisible(False)
+        self.progress.setVisible(False)
+        root.addWidget(self.progress)
+        root.addStretch(1)
+
+        actions = QHBoxLayout()
+        actions.setSpacing(9)
+        self.btn_cancel = QPushButton("取消")
+        self.btn_choose = QPushButton("手动选择 7z.exe")
+        self.btn_download = QPushButton("自动下载安装")
+        self.btn_download.setProperty("accent", "primary")
+        self.btn_cancel.clicked.connect(self.reject)
+        self.btn_choose.clicked.connect(self._choose_executable)
+        self.btn_download.clicked.connect(self._start_download)
+        actions.addStretch(1)
+        actions.addWidget(self.btn_cancel)
+        actions.addWidget(self.btn_choose)
+        actions.addWidget(self.btn_download)
+        root.addLayout(actions)
+
+    def _set_busy(self, busy):
+        self.btn_cancel.setEnabled(not busy)
+        self.btn_choose.setEnabled(not busy)
+        self.btn_download.setEnabled(not busy)
+        self.progress.setVisible(busy)
+
+    def _choose_executable(self):
+        start = os.path.dirname(self.archiver_path) if self.archiver_path else ""
+        if not start and self.main.archiver:
+            start = os.path.dirname(self.main.archiver.path)
+        selected, _filter = QFileDialog.getOpenFileName(
+            self, "选择解压程序", start,
+            "7-Zip / WinRAR (7z.exe 7zz.exe WinRAR.exe rar.exe);;程序 (*.exe)")
+        if not selected:
+            return
+        info = archiver_core.from_path(selected, source="manual")
+        if info is None:
+            QMessageBox.warning(
+                self, "程序不可用",
+                "请选择有效的 7z.exe、7zz.exe、WinRAR.exe 或 rar.exe。")
+            return
+        self.archiver_path = info.path
+        self.accept()
+
+    def _start_download(self):
+        if self._worker is not None and self._worker.isRunning():
+            return
+        self._set_busy(True)
+        self.status_label.setText("正在准备下载 7-Zip…")
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        dest = os.path.join(self.main.store.data_dir, "tools", "7zip")
+        worker = ArchiverInstallWorker(dest, self)
+        self._worker = worker
+        worker.progress.connect(self._on_download_progress)
+        worker.done.connect(self._on_download_done)
+        worker.error.connect(self._on_download_error)
+        worker.finished.connect(lambda w=worker: self._release_worker(w))
+        worker.start()
+
+    def _on_download_progress(self, percent, text):
+        self.progress.setValue(percent)
+        self.status_label.setText(text)
+
+    def _on_download_done(self, path):
+        info = archiver_core.from_path(path, source="downloaded")
+        if info is None:
+            self._on_download_error("7-Zip 安装完成后未找到可用的 7z.exe")
+            return
+        self.archiver_path = info.path
+        self.accept()
+
+    def _on_download_error(self, message):
+        self._set_busy(False)
+        self.status_label.setText("自动安装失败，可改用“手动选择 7z.exe”")
+        QMessageBox.warning(
+            self, "自动安装失败",
+            "%s\n\n也可以手动选择已下载的 7z.exe。" % message)
+
+    def _release_worker(self, worker):
+        if self._worker is worker:
+            self._worker = None
+        worker.deleteLater()
+
+    def reject(self):
+        if self._worker is not None and self._worker.isRunning():
+            QMessageBox.information(self, "正在安装", "请等待 7-Zip 安装完成")
+            return
+        super().reject()
+
+    def closeEvent(self, event):
+        if self._worker is not None and self._worker.isRunning():
+            QMessageBox.information(self, "正在安装", "请等待 7-Zip 安装完成")
+            event.ignore()
+            return
+        super().closeEvent(event)
 
 
 class ImportArchiveDialog(AppDialog):
@@ -275,6 +409,12 @@ class ImportArchiveDialog(AppDialog):
         if not valid:
             QMessageBox.warning(self, "格式不支持", "请选择 ZIP、7z 或 RAR 压缩包")
             return
+        needs_external = any(
+            path.lower().endswith((".7z", ".rar")) for path in valid)
+        if needs_external and self.main.ensure_archiver() is None:
+            self.status_label.setText("需要解压组件")
+            self.status_meta.setText("未选择 7z / RAR 解压程序")
+            return
         importer.cleanup_staged(self._batch)
         self._batch = None
         self.imported = []
@@ -289,7 +429,9 @@ class ImportArchiveDialog(AppDialog):
         self.result_title.setText("可加入的 Mod")
         self.selection_label.setText("正在解析内容")
 
-        worker = ImportAnalyzeWorker(self.main.library, valid, self)
+        worker = ImportAnalyzeWorker(
+            self.main.library, valid,
+            archiver_info=self.main.archiver, parent=self)
         self._worker = worker
         worker.log.connect(lambda text: self.status_label.setText(str(text)))
         worker.progress.connect(self._on_analysis_progress)

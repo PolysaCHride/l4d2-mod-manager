@@ -2,7 +2,7 @@
 """QThread 工作线程：扫描 / 导入 / 下载 / 在线搜索 / 迁移 / 预览图。"""
 from PySide6.QtCore import QThread, Signal
 
-from ..core import downloader, importer, steam_api
+from ..core import archiver, downloader, importer, steam_api
 
 
 class ScanWorker(QThread):
@@ -28,10 +28,11 @@ class ImportWorker(QThread):
     done = Signal(list)
     error = Signal(str)
 
-    def __init__(self, library, archive_paths, parent=None):
+    def __init__(self, library, archive_paths, archiver_info=None, parent=None):
         super().__init__(parent)
         self.library = library
         self.archives = archive_paths
+        self.archiver_info = archiver_info
 
     def run(self):
         try:
@@ -40,7 +41,8 @@ class ImportWorker(QThread):
                 recs = importer.import_archive(
                     arc, self.library,
                     log=lambda s: self.log.emit(s),
-                    progress=lambda i, n, s: self.progress.emit(i, n, s))
+                    progress=lambda i, n, s: self.progress.emit(i, n, s),
+                    archiver_info=self.archiver_info)
                 all_recs.extend(recs)
             self.done.emit(all_recs)
         except Exception as e:  # noqa: BLE001
@@ -54,20 +56,42 @@ class ImportAnalyzeWorker(QThread):
     done = Signal(object)
     error = Signal(str)
 
-    def __init__(self, library, archive_paths, parent=None):
+    def __init__(self, library, archive_paths, archiver_info=None, parent=None):
         super().__init__(parent)
         self.library = library
         self.archives = archive_paths
+        self.archiver_info = archiver_info
 
     def run(self):
         try:
             batch = importer.stage_archives(
                 self.archives, self.library,
                 log=lambda text: self.log.emit(str(text)),
-                progress=lambda i, n, text: self.progress.emit(i, n, str(text)))
+                progress=lambda i, n, text: self.progress.emit(i, n, str(text)),
+                archiver_info=self.archiver_info)
             self.done.emit(batch)
         except Exception as e:  # noqa: BLE001
             self.error.emit("%s: %s" % (type(e).__name__, e))
+
+
+class ArchiverInstallWorker(QThread):
+    progress = Signal(int, str)
+    done = Signal(str)
+    error = Signal(str)
+
+    def __init__(self, dest_dir, parent=None):
+        super().__init__(parent)
+        self.dest_dir = dest_dir
+
+    def run(self):
+        try:
+            info = archiver.install_portable_7zip(
+                self.dest_dir,
+                progress=lambda percent, text: self.progress.emit(
+                    int(percent), str(text)))
+            self.done.emit(info.path)
+        except Exception as exc:  # noqa: BLE001
+            self.error.emit(str(exc))
 
 
 class ImportCommitWorker(QThread):

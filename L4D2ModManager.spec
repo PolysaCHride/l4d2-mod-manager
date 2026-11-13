@@ -1,11 +1,18 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
+
+
+datas = [("assets", "assets")]
+zip_tools = os.path.join(SPECPATH, "third_party", "7zip")
+if os.path.isdir(zip_tools):
+    datas.append((zip_tools, "7zip"))
 
 
 a = Analysis(
     ["main.py"],
     pathex=[],
     binaries=[],
-    datas=[("assets", "assets")],
+    datas=datas,
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

@@ -80,20 +80,11 @@ def find_steam_exe():
     return ""
 
 
-_WINRAR_CANDIDATES = (
-    r"C:\Program Files\WinRAR\WinRAR.exe",
-    r"C:\Program Files (x86)\WinRAR\WinRAR.exe",
-    r"C:\Program Files\7-Zip\7z.exe",
-    r"C:\Program Files (x86)\7-Zip\7z.exe",
-)
-
-
 def find_archiver():
-    """返回 (path, kind)：kind 为 'winrar' 或 '7z'；找不到返回 ("", "")。"""
-    for p in _WINRAR_CANDIDATES:
-        if os.path.isfile(p):
-            return p, ("7z" if p.lower().endswith("7z.exe") else "winrar")
-    return "", ""
+    """Backward-compatible tuple wrapper around the shared discovery logic."""
+    from . import archiver as archiver_core
+    info = archiver_core.find_archiver()
+    return (info.path, info.kind) if info else ("", "")
 
 
 class GamePaths(object):

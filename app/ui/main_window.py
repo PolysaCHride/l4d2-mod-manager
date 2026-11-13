@@ -10,13 +10,14 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QColor, QPainter, QPen, QFontMetrics, QIcon, QPixmap, QShortcut
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QDialog, QFileDialog, QFormLayout, QFrame, QGridLayout,
+    QAbstractButton, QApplication, QCheckBox, QDialog, QFileDialog, QFormLayout, QFrame, QGridLayout,
     QGraphicsOpacityEffect, QHBoxLayout, QLabel, QInputDialog, QLineEdit, QListWidget,
     QListWidgetItem, QMainWindow, QMenu, QPushButton, QScrollArea, QComboBox,
     QSizePolicy, QSplitter, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from ..core import game as gamemod
+from ..core import archiver as archiver_core
 from ..core import paths as pathsmod
 from ..core import steam_api
 from ..core import app_paths
@@ -26,7 +27,7 @@ from ..core.paths import GamePaths
 from ..core.store import Store, mod_name_sort_key
 from . import theme, util
 from .dialogs import (
-    CategoryDialog, DetailDialog, ImportArchiveDialog,
+    CategoryDialog, DetailDialog, ImportArchiveDialog, MissingArchiverDialog,
     WorkshopDialog,
 )
 from .components import (
@@ -35,7 +36,7 @@ from .components import (
 from .workers import DetailsWorker, DownloadWorker, ScanWorker, UpdateCheckWorker
 
 APP_TITLE = "L4D2 MOD 军械库"
-APP_VERSION = "1.0"
+APP_VERSION = "1.1"
 # 项目仓库主页（设置页展示为超链接，检查更新基于它的 releases/latest）
 REPO_URL = "https://github.com/PolysaCHride/l4d2-mod-manager"
 CARD_W, CARD_H = 230, 234
@@ -223,6 +224,108 @@ class CheckCircle(QWidget):
         p.end()
 
 
+class ToggleSwitch(QAbstractButton):
+    """带滑块和状态过渡的胶囊开关。"""
+
+    def __init__(self, checked=False, parent=None):
+        super().__init__(parent)
+        self._progress = 1.0 if checked else 0.0
+        self._hover = False
+        self.setCheckable(True)
+        self.setChecked(bool(checked))
+        self.setFixedSize(44, 24)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setToolTip("自动检查更新")
+        self._animation = QPropertyAnimation(self, b"switchProgress", self)
+        self._animation.setDuration(170)
+        self._animation.setEasingCurve(QEasingCurve.OutCubic)
+        self.toggled.connect(self._animate_state)
+
+    @Property(float)
+    def switchProgress(self):
+        return self._progress
+
+    @switchProgress.setter
+    def switchProgress(self, value):
+        self._progress = max(0.0, min(1.0, float(value)))
+        self.update()
+
+    def _animate_state(self, checked):
+        target = 1.0 if checked else 0.0
+        self._animation.stop()
+        if not motion_enabled():
+            self.switchProgress = target
+            return
+        self._animation.setStartValue(self._progress)
+        self._animation.setEndValue(target)
+        self._animation.start()
+
+    @staticmethod
+    def _blend(start, end, amount):
+        return QColor(
+            round(start.red() + (end.red() - start.red()) * amount),
+            round(start.green() + (end.green() - start.green()) * amount),
+            round(start.blue() + (end.blue() - start.blue()) * amount),
+        )
+
+    def sizeHint(self):
+        return QSize(44, 24)
+
+    def enterEvent(self, _event):
+        self._hover = True
+        self.update()
+
+    def leaveEvent(self, _event):
+        self._hover = False
+        self.update()
+
+    def focusInEvent(self, event):
+        super().focusInEvent(event)
+        self.update()
+
+    def focusOutEvent(self, event):
+        super().focusOutEvent(event)
+        self.update()
+
+    def paintEvent(self, _event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        progress = self._progress
+        track_h = self.height() - 2
+        track_rect = QRect(1, 1, self.width() - 2, track_h)
+
+        off_fill = QColor("#10130c")
+        on_fill = QColor(theme.GREEN)
+        fill = self._blend(off_fill, on_fill, progress)
+        if self._hover and not self.isChecked():
+            fill = QColor("#1b2213")
+        border = self._blend(
+            QColor(theme.GREEN if self._hover else theme.BORDER_L),
+            QColor(theme.GREEN_L),
+            progress,
+        )
+        if self.hasFocus():
+            border = QColor(theme.GREEN_L)
+
+        p.setPen(QPen(border, 1.25))
+        p.setBrush(fill)
+        p.drawRoundedRect(track_rect, track_h / 2.0, track_h / 2.0)
+
+        thumb_d = self.height() - 8
+        left_x = 4
+        right_x = self.width() - thumb_d - 4
+        thumb_x = left_x + (right_x - left_x) * progress
+        thumb_rect = QRect(
+            round(thumb_x), (self.height() - thumb_d) // 2,
+            thumb_d, thumb_d,
+        )
+        p.setPen(QPen(QColor(255, 255, 255, 42), 1))
+        p.setBrush(QColor("#f3f6eb" if self.isChecked() else "#c8cebe"))
+        p.drawEllipse(thumb_rect)
+        p.end()
+
+
 class ModCard(QFrame):
     def __init__(self, main, rec):
         super().__init__()
@@ -378,6 +481,8 @@ class MainWindow(QMainWindow):
         self._page_animation = None
 
         self.store = Store(self._data_dir())
+        self.archiver = archiver_core.find_archiver(
+            self.store.settings().get("archiver_path", ""))
         steam_api.set_proxy(self.store.settings().get("proxy", ""))
         self.paths = None
         self.library = None
@@ -427,6 +532,38 @@ class MainWindow(QMainWindow):
     # ---------- 路径 ----------
     def _data_dir(self):
         return app_paths.data_dir()
+
+    def ensure_archiver(self):
+        """Return the startup-selected component or ask the user to resolve one."""
+        if self.archiver and os.path.isfile(self.archiver.path):
+            return self.archiver
+
+        remembered = self.store.settings().get("archiver_path", "")
+        self.archiver = archiver_core.find_archiver(remembered)
+        if self.archiver:
+            return self.archiver
+
+        dialog = MissingArchiverDialog(self)
+        if dialog.exec() != QDialog.Accepted or not dialog.archiver_path:
+            return None
+        tools_dir = os.path.abspath(os.path.join(self.store.data_dir, "tools"))
+        try:
+            installed_here = os.path.commonpath([
+                os.path.abspath(dialog.archiver_path), tools_dir
+            ]) == tools_dir
+        except ValueError:
+            installed_here = False
+        info = archiver_core.from_path(
+            dialog.archiver_path,
+            source="downloaded" if installed_here else "manual")
+        if info is None:
+            QMessageBox.warning(
+                self, "解压组件不可用",
+                "所选程序无法作为 7-Zip / WinRAR 解压组件使用。")
+            return None
+        self.archiver = info
+        self.store.set_setting("archiver_path", info.path)
+        return info
 
     def apply_game_dir(self, first=False):
         gd = self.store.settings().get("game_dir", "")
@@ -1701,10 +1838,26 @@ class MainWindow(QMainWindow):
         h1.addWidget(b_browse)
         outer.addWidget(self._settings_row("📁", "L4D2 目录", self._st_game_sub, right1))
 
-        self._st_proxy_sub = self._sub_label()
-        b_proxy = QPushButton("设置代理")
-        b_proxy.clicked.connect(self._edit_proxy)
-        outer.addWidget(self._settings_row("🌐", "网络代理", self._st_proxy_sub, b_proxy))
+        self._st_proxy_sub = self._sub_label("留空时自动探测本地代理（clash 7890 等）")
+        right_proxy = QWidget()
+        right_proxy.setObjectName("SettingsActionHost")
+        hp = QHBoxLayout(right_proxy)
+        hp.setContentsMargins(0, 0, 0, 0)
+        hp.setSpacing(8)
+        self._st_proxy_input = QLineEdit()
+        self._st_proxy_input.setPlaceholderText("例如 http://127.0.0.1:7890")
+        self._st_proxy_input.setClearButtonEnabled(True)
+        self._st_proxy_input.setMinimumWidth(240)
+        self._st_proxy_input.setMaximumWidth(340)
+        self._st_proxy_input.setMinimumHeight(34)
+        self._st_proxy_input.setToolTip("HTTP 代理地址；留空时自动探测本地代理")
+        self._st_proxy_input.returnPressed.connect(self._save_proxy)
+        b_proxy = QPushButton("保存")
+        b_proxy.setMinimumHeight(34)
+        b_proxy.clicked.connect(self._save_proxy)
+        hp.addWidget(self._st_proxy_input)
+        hp.addWidget(b_proxy)
+        outer.addWidget(self._settings_row("🌐", "网络代理", self._st_proxy_sub, right_proxy))
 
         # ---- 缓存 ----
         self._settings_section(outer, "缓存")
@@ -1715,20 +1868,15 @@ class MainWindow(QMainWindow):
 
         # ---- 更新 ----
         self._settings_section(outer, "更新")
-        self._st_autocheck = QCheckBox()
-        self._st_autocheck.setChecked(bool(self.store.settings().get("check_update_on_start", False)))
-        right_auto = QWidget()
-        right_auto.setObjectName("SettingsActionHost")
-        ha = QHBoxLayout(right_auto)
-        ha.setContentsMargins(0, 0, 0, 0)
-        ha.setSpacing(8)
-        self._st_auto_lab = QLabel("关")
-        self._st_auto_lab.setObjectName("SettingsSub")
-        self._st_auto_lab.setStyleSheet("background:transparent;")
-        ha.addWidget(self._st_auto_lab)
-        ha.addWidget(self._st_autocheck)
+        self._st_autocheck = ToggleSwitch(
+            bool(self.store.settings().get("check_update_on_start", False)))
+        self._st_autocheck.setAccessibleName("启动程序时自动检查更新")
+        self._st_autocheck.setToolTip(
+            "自动检查更新：%s" % ("开" if self._st_autocheck.isChecked() else "关"))
         self._st_autocheck.toggled.connect(self._on_autocheck_toggled)
-        outer.addWidget(self._settings_row("🔄", "启动检查", self._sub_label("启动程序时检查更新"), right_auto))
+        outer.addWidget(self._settings_row(
+            "🔄", "启动检查", self._sub_label("启动程序时检查更新"),
+            self._st_autocheck))
 
         self._st_update_sub = self._sub_label("当前版本 v%s" % APP_VERSION)
         b_check = QPushButton("检查更新")
@@ -1744,7 +1892,7 @@ class MainWindow(QMainWindow):
             right_repo.setObjectName("SettingsActionHost")
             hr = QHBoxLayout(right_repo)
             hr.setContentsMargins(0, 0, 0, 0)
-            link = QLabel('<a href="%s" style="color:%s; text-decoration:none;">打开 github 项目</a>'
+            link = QLabel('<a href="%s" style="color:%s; text-decoration:none;">打开 github 仓库</a>'
                           % (REPO_URL, theme.GREEN))
             link.setOpenExternalLinks(True)
             hr.addWidget(link)
@@ -1759,7 +1907,7 @@ class MainWindow(QMainWindow):
 
     def _on_autocheck_toggled(self, on):
         self.store.set_setting("check_update_on_start", bool(on))
-        self._st_auto_lab.setText("开" if on else "关")
+        self._st_autocheck.setToolTip("自动检查更新：%s" % ("开" if on else "关"))
 
     def _refresh_settings_subs(self):
         if not hasattr(self, "_st_game_sub"):
@@ -1768,7 +1916,8 @@ class MainWindow(QMainWindow):
         ok = pathsmod.is_game_dir(gd)
         self._st_game_sub.setText(("✔ " if ok else "✘ ") + (gd or "未配置"))
         proxy = self.store.settings().get("proxy", "")
-        self._st_proxy_sub.setText(proxy if proxy else "自动探测本地代理（clash 7890 等）")
+        if self._st_proxy_input.text() != proxy:
+            self._st_proxy_input.setText(proxy)
         try:
             total = 0
             for d in (self.store.trash_dir, self.store.tmp_dir):
@@ -1803,14 +1952,12 @@ class MainWindow(QMainWindow):
         self.apply_game_dir()
         self._refresh_settings_subs()
 
-    def _edit_proxy(self):
-        cur = self.store.settings().get("proxy", "")
-        text, ok = QInputDialog.getText(None, "网络代理",
-                                        "代理地址（留空 = 自动探测本地代理）：", text=cur)
-        if not ok:
-            return
-        self.store.set_setting("proxy", text.strip())
-        steam_api.set_proxy(text.strip())
+    def _save_proxy(self):
+        text = self._st_proxy_input.text().strip()
+        if self._st_proxy_input.text() != text:
+            self._st_proxy_input.setText(text)
+        self.store.set_setting("proxy", text)
+        steam_api.set_proxy(text)
         self._refresh_settings_subs()
 
     def _clean_cache(self):

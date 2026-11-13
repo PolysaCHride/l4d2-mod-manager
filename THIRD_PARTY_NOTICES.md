@@ -12,6 +12,16 @@
 
 应用图标中的其他图形、配色与容器样式由本项目制作。
 
+## 7-Zip
+
+- 随 Windows 发布包分发的组件：`7z.exe`、`7z.dll` 及安装包内附带的完整命令行文件
+- 来源：https://www.7-zip.org/
+- 许可证：GNU LGPL v2.1 及 7-Zip 许可证中的 unRAR 限制
+- 许可证全文：发布包内 `_internal/7zip/License.txt`
+- 版权：Copyright (C) 1999-2026 Igor Pavlov
+
+构建脚本只从 7-Zip 官方下载页或官方 GitHub 发布仓库获取 x64 MSI，并在解包前核对官方发布页给出的 SHA-256。
+
 ## L4D2 Mod Manager 分类白名单
 
 - 文件：`app/core/classify_data.py`

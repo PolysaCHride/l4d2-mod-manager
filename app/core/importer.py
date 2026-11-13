@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""压缩包导入：zip 用 zipfile；7z/rar 调 WinRAR/7-Zip 命令行。
+"""压缩包导入：zip 用 zipfile；7z/rar 调 7-Zip/WinRAR 命令行。
 
 导入分两步：先解包到 data/tmp/ 下的独立暂存目录并解析候选，用户确认后
 才复制到 addons。zip 条目做路径穿越校验；解出的 vpk 只解析数据，不执行任何内容。
@@ -11,6 +11,7 @@ import subprocess
 import tempfile
 import zipfile
 
+from . import archiver as archiver_core
 from . import vpk as vpkmod
 from . import classify as clf
 
@@ -25,12 +26,11 @@ def supported_ext(path):
     return path.lower().endswith(ZIP_EXTS + (".7z", ".rar"))
 
 
-def find_archiver():
-    from . import paths as _paths
-    return _paths.find_archiver()
+def find_archiver(remembered_path=""):
+    return archiver_core.find_archiver(remembered_path)
 
 
-def extract_archive(archive, dest_dir, log=None):
+def extract_archive(archive, dest_dir, log=None, archiver_info=None):
     """解压 archive 到 dest_dir。返回解出的文件数。"""
     lower = archive.lower()
     if lower.endswith(ZIP_EXTS):
@@ -51,19 +51,19 @@ def extract_archive(archive, dest_dir, log=None):
                     log("解压 %d 个文件…" % n)
         return n
     if lower.endswith((".7z", ".rar")):
-        exe, kind = find_archiver()
-        if not exe:
-            raise ImporterError("未找到 WinRAR/7-Zip，无法解压 %s 文件" % os.path.splitext(archive)[1])
+        info = archiver_info or find_archiver()
+        if not info:
+            raise ImporterError(
+                "未找到 7-Zip/WinRAR，无法解压 %s 文件"
+                % os.path.splitext(archive)[1])
         os.makedirs(dest_dir, exist_ok=True)
-        if kind == "winrar":
-            cmd = [exe, "x", "-ibck", "-y", "--", archive, dest_dir + os.sep]
-        else:
-            cmd = [exe, "x", "-y", "-o" + dest_dir, "--", archive]
+        cmd = info.extract_command(archive, dest_dir)
         proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
                               errors="replace")
         if proc.returncode != 0:
             raise ImporterError("解压失败（%s）：%s" %
-                                (os.path.basename(exe), (proc.stderr or proc.stdout or "")[-200:]))
+                                (os.path.basename(info.path),
+                                 (proc.stderr or proc.stdout or "")[-200:]))
         return sum(len(fs) for _, _, fs in os.walk(dest_dir))
     raise ImporterError("不支持的压缩格式: " + os.path.splitext(archive)[1])
 
@@ -306,7 +306,7 @@ def _mark_duplicates(candidates, library):
     return duplicate_count
 
 
-def stage_archives(archives, library, log=None, progress=None):
+def stage_archives(archives, library, log=None, progress=None, archiver_info=None):
     """解压并解析压缩包，不在确认前写入游戏目录。"""
     archives = [os.path.abspath(path) for path in archives]
     if not archives:
@@ -329,7 +329,7 @@ def stage_archives(archives, library, log=None, progress=None):
                 log("解压 %s…" % os.path.basename(archive))
             dest = os.path.join(work, "archive_%02d" % archive_index)
             os.makedirs(dest, exist_ok=True)
-            extract_archive(archive, dest, log=log)
+            extract_archive(archive, dest, log=log, archiver_info=archiver_info)
             reps = find_vpk_sets(dest)
             if not reps:
                 raise ImporterError("%s 内未找到 .vpk 文件" % os.path.basename(archive))
@@ -456,9 +456,11 @@ def commit_staged(batch, library, candidates=None, progress=None):
     return results
 
 
-def import_archive(archive, library, log=None, progress=None):
+def import_archive(archive, library, log=None, progress=None, archiver_info=None):
     """兼容旧调用：完整导入一个压缩包并自动去重。"""
-    batch = stage_archives([archive], library, log=log, progress=progress)
+    batch = stage_archives(
+        [archive], library, log=log, progress=progress,
+        archiver_info=archiver_info)
     try:
         return commit_staged(batch, library, progress=progress)
     finally:

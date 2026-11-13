@@ -19,7 +19,6 @@ data/
 # Local development notes and validation scripts
 .zcode/
 tools/
-tests/
 
 # Build and release output
 build/
@@ -30,6 +29,7 @@ release/
 .codex/
 .zcode/
 /README.md备份
+third_party/7zip/
 
 # Editor and OS files
 .idea/

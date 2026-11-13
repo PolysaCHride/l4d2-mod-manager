@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "1.0"
+    [string]$Version = "1.1"
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,6 +23,9 @@ function Assert-InRelease([string]$Path) {
 if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
     throw "未找到项目虚拟环境: $python"
 }
+
+$fetchZip = Join-Path $projectRoot "packaging\fetch_7zip.ps1"
+& $fetchZip
 
 Assert-InRelease $rawDistDir
 Assert-InRelease $packageDir
@@ -51,6 +54,13 @@ if (Test-Path -LiteralPath $zipPath) {
 }
 
 Move-Item -LiteralPath $rawPackageDir -Destination $packageDir
+
+$bundledZip = Join-Path $packageDir "_internal\7zip"
+foreach ($name in @("7z.exe", "7z.dll", "License.txt")) {
+    if (-not (Test-Path -LiteralPath (Join-Path $bundledZip $name) -PathType Leaf)) {
+        throw "发布包缺少 7-Zip 组件文件: $name"
+    }
+}
 
 # The app creates this directory on first run. It can contain the local game
 # path, mod list and settings, so it must never be included in a public build.
