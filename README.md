@@ -90,7 +90,7 @@ Steam 创意工坊模组默认存放在 `left4dead2/addons/workshop/`。游戏�
 
 最新正式版请前往 [GitHub Releases](https://github.com/PolysaCHride/l4d2-mod-manager/releases/latest) 下载。
 
-1. 下载并解压 `L4D2 Mod Manager-v1.2-win64.zip`。
+1. 下载并解压 `L4D2 Mod Manager-v1.2.1-win64.zip`。
 2. 运行 `L4D2 Mod Manager.exe`，无需安装。
 3. 在「设置」中自动检测或手动选择 L4D2 安装目录。
 4. 建议先使用「一键管理」整理现有模组，再按需导入或下载新模组。
@@ -110,7 +110,7 @@ python -m venv .venv
 构建 Windows 便携版前，需要在虚拟环境中安装 PyInstaller，然后运行：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\build_release.ps1 -Version 1.1
+powershell -ExecutionPolicy Bypass -File .\build_release.ps1 -Version 1.2.1
 ```
 
 构建产物位于 `release/`。

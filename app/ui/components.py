@@ -6,7 +6,7 @@ import sys
 
 from PySide6.QtCore import (
     QAbstractAnimation, QEasingCurve, QEvent, QPoint, QPropertyAnimation, Property,
-    QRect, QRectF, QSize, Qt, QTimer,
+    QRect, QRectF, QSize, Qt, QTimer, Signal,
 )
 from PySide6.QtGui import QCursor, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import (
@@ -672,3 +672,53 @@ class SquareCheck(QAbstractButton):
             hover=self.underMouse(), enabled=self.isEnabled(),
             focused=self.hasFocus())
         painter.end()
+
+
+class CheckOption(QWidget):
+    """勾选框 + 说明文字：方框与 SquareCheck 完全一致，点文字也能切换。"""
+
+    toggled = Signal(bool)
+
+    def __init__(self, text="", checked=False, parent=None):
+        super().__init__(parent)
+        self.setObjectName("CheckOption")
+
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(9)
+        self.box = SquareCheck(bool(checked))
+        self.box.setAccessibleName(text)
+        row.addWidget(self.box, 0, Qt.AlignVCenter)
+        self.label = QLabel(text)
+        self.label.setObjectName("CheckOptionLabel")
+        self.label.setCursor(Qt.PointingHandCursor)
+        # 文字不吃鼠标事件，点标题也能切换勾选。
+        self.label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        row.addWidget(self.label, 0, Qt.AlignVCenter)
+        row.addStretch(1)
+
+        self.box.toggled.connect(self.toggled.emit)
+        self.setFocusProxy(self.box)
+
+    def isChecked(self):
+        return self.box.isChecked()
+
+    def setChecked(self, checked):
+        self.box.setChecked(bool(checked))
+
+    def text(self):
+        return self.label.text()
+
+    def setText(self, text):
+        self.label.setText(text)
+        self.box.setAccessibleName(text)
+
+    def mouseReleaseEvent(self, event):
+        # 只有方框和文字本身可点；行尾留白不抢点击。
+        content = self.box.geometry().united(self.label.geometry())
+        if (self.isEnabled() and event.button() == Qt.LeftButton
+                and content.contains(event.position().toPoint())):
+            self.box.toggle()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)

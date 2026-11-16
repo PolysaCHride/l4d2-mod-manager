@@ -10,7 +10,7 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QColor, QPainter, QPen, QFontMetrics, QIcon, QPixmap, QShortcut
 from PySide6.QtWidgets import (
-    QAbstractButton, QApplication, QCheckBox, QDialog, QFileDialog, QFormLayout, QFrame, QGridLayout,
+    QAbstractButton, QApplication, QDialog, QFileDialog, QFormLayout, QFrame, QGridLayout,
     QGraphicsOpacityEffect, QHBoxLayout, QLabel, QInputDialog, QLineEdit, QListWidget,
     QListWidgetItem, QMainWindow, QMenu, QPushButton, QScrollArea, QComboBox,
     QSizePolicy, QSplitter, QStackedWidget, QVBoxLayout, QWidget,
@@ -31,12 +31,13 @@ from .dialogs import (
     WorkshopDialog,
 )
 from .components import (
-    AppDialog, AppMessageBox as QMessageBox, fade_in_window, motion_enabled,
+    AppDialog, AppMessageBox as QMessageBox, CheckOption, fade_in_window,
+    motion_enabled,
 )
 from .workers import DetailsWorker, DownloadWorker, ScanWorker, UpdateCheckWorker
 
 APP_TITLE = "L4D2 MOD 军械库"
-APP_VERSION = "1.2"
+APP_VERSION = "1.2.1"
 # 项目仓库主页（设置页展示为超链接，检查更新基于它的 releases/latest）
 REPO_URL = "https://github.com/PolysaCHride/l4d2-mod-manager"
 CARD_W, CARD_H = 230, 234
@@ -1464,10 +1465,11 @@ class MainWindow(QMainWindow):
         box.setText(text)
         box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
         box.setDefaultButton(QMessageBox.No)
-        cb = QCheckBox("今日不再提醒")
-        box.setCheckBox(cb)
+        # 与导入向导、工坊列表同款的方框勾选，不再用系统开关样式。
+        option = CheckOption("今日不再提醒")
+        box.setCheckBox(option)
         ok = box.exec() == QMessageBox.Yes
-        if ok and cb.isChecked():
+        if ok and option.isChecked():
             self.store.set_setting("delete_warn_off_date", today)
         return ok
 

@@ -236,15 +236,6 @@ QPushButton[accent="primary"]:hover { background: #c93e2a; color: #ffffff; }
 QPushButton[accent="danger"] { background: transparent; border-color: #7a2a1f; color: #d97b6c; }
 QPushButton[accent="danger"]:hover { background: #2a120d; color: #ff9b8a; }
 
-/* ---- 开关（QCheckBox） ---- */
-QCheckBox::indicator {
-  width: 34px; height: 16px; border-radius: 8px;
-  background: %(PANEL2)s; border: 1px solid %(BORDER_L)s;
-}
-QCheckBox::indicator:hover { border-color: %(GREEN)s; }
-QCheckBox::indicator:checked { background: %(GREEN)s; border-color: %(GREEN_L)s; }
-QCheckBox::indicator:disabled { background: #14170f; border-color: %(BORDER)s; }
-
 /* ---- 卡片 ---- */
 #ModCard {
   background: #14170d; border: 1px solid #232819; border-radius: 4px;
@@ -394,13 +385,6 @@ QFrame#ImportCandidate {
 QFrame#ImportCandidate:hover { background: #191e10; border-color: #46582a; }
 QFrame#ImportCandidate[duplicate="true"] { background: #101208; border-color: #202517; }
 QFrame#ImportCandidate QLabel { background: transparent; }
-QCheckBox#ImportSelect::indicator {
-  width: 18px; height: 18px; border-radius: 3px;
-  background: #0b0e07; border: 1px solid #536337;
-}
-QCheckBox#ImportSelect::indicator:hover { border-color: %(GREEN_L)s; }
-QCheckBox#ImportSelect::indicator:checked { background: %(GREEN)s; border: 1px solid %(GREEN_L)s; }
-QCheckBox#ImportSelect::indicator:disabled { background: #151811; border-color: #2e3422; }
 QLabel#ImportThumb { background: #0b0e07; border: 1px solid #29301c; border-radius: 3px; }
 QLabel#ImportCandidateTitle { color: #e0e7ca; font-size: 13px; font-weight: bold; }
 QLabel#ImportCandidateMeta { color: #a5af90; font-size: 11px; }
@@ -650,14 +634,12 @@ QPushButton[role="bulk"]:disabled {
   color: #4d5544; border-color: #262c20; background: #14170f;
 }
 
-/* ---- 开关 ---- */
-QCheckBox::indicator {
-  width: 34px; height: 16px; border-radius: 8px;
-  background: %(PANEL2)s; border: 1px solid %(BORDER_L)s;
+/* ---- 勾选项：方框由 SquareCheck 自绘，这里只清掉行与文字底色 ---- */
+QWidget#CheckOption { background: transparent; border: none; }
+QLabel#CheckOptionLabel {
+  color: %(TEXT)s; background: transparent;
 }
-QCheckBox::indicator:hover { border-color: %(GREEN)s; }
-QCheckBox::indicator:checked { background: %(GREEN)s; border-color: %(GREEN_L)s; }
-QCheckBox::indicator:disabled { background: #14170f; border-color: %(BORDER)s; }
+QLabel#CheckOptionLabel:disabled { color: %(TEXT_DIM)s; }
 
 /* ---- MOD 卡片 ---- */
 #ModCard {
@@ -874,7 +856,7 @@ QFrame#ImportCandidate[duplicate="true"] {
   background: #11140e; border-color: #252b20;
 }
 QFrame#ImportCandidate QLabel { background: transparent; }
-/* 勾选框由 SquareCheck / WorkshopCheckDelegate 自绘，这里只清掉控件底色 */
+/* 勾选框由 SquareCheck / SquareCheckDelegate 自绘，这里只清掉控件底色 */
 QAbstractButton#SquareCheck {
   background: transparent; border: none; padding: 0; margin: 0;
 }
@@ -906,8 +888,9 @@ QListWidget#WorkshopLinkList {
   background: #0e110b; border: 1px solid #30382a; border-radius: 12px;
   padding: 5px;
 }
-/* 原生指示器只保留占位区域，方框与对勾由 WorkshopCheckDelegate 自绘 */
-QListWidget#WorkshopLinkList::indicator {
+/* 原生指示器只保留占位区域，方框与对勾由 SquareCheckDelegate 自绘 */
+QListWidget#WorkshopLinkList::indicator,
+QTreeWidget#MigrateTree::indicator {
   width: 18px; height: 18px;
   background: transparent; border: 0px;
 }

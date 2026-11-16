@@ -666,8 +666,8 @@ class ImportArchiveDialog(AppDialog):
         super().closeEvent(event)
 
 
-class WorkshopCheckDelegate(QStyledItemDelegate):
-    """把列表行里的系统勾选框换成与导入向导一致的空心圆角方框 / 绿底打勾。
+class SquareCheckDelegate(QStyledItemDelegate):
+    """把列表 / 树行里的系统勾选框换成与导入向导一致的空心圆角方框 / 绿底打勾。
 
     勾选框的位置与点击范围仍取自样式表里的指示器区域，
     因此单击方框切换勾选的交互保持不变；已在库的条目显示为禁用方框。
@@ -773,7 +773,7 @@ class WorkshopDialog(AppDialog):
 
         self.link_list = QListWidget()
         self.link_list.setObjectName("WorkshopLinkList")
-        self.link_list.setItemDelegate(WorkshopCheckDelegate(self.link_list))
+        self.link_list.setItemDelegate(SquareCheckDelegate(self.link_list))
         root.addWidget(self.link_list, 1)
         self.link_list.itemChanged.connect(lambda _it: self._refresh_download_button())
 
@@ -1329,9 +1329,11 @@ class MigrateDialog(AppDialog):
         v.addWidget(hint)
 
         self.tree = QTreeWidget()
+        self.tree.setObjectName("MigrateTree")
         self.tree.setHeaderLabels(["物品", "文件"])
         self.tree.setColumnWidth(0, 380)
         self.tree.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.tree.setItemDelegate(SquareCheckDelegate(self.tree))
         v.addWidget(self.tree, 1)
 
         self.moved_tree = QTreeWidget()
