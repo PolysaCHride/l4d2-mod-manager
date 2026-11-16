@@ -6,13 +6,14 @@ import sys
 
 from PySide6.QtCore import (
     QAbstractAnimation, QEasingCurve, QEvent, QPoint, QPropertyAnimation, Property,
-    QRect, QSize, Qt, QTimer,
+    QRect, QRectF, QSize, Qt, QTimer,
 )
-from PySide6.QtGui import QCursor, QPixmap
+from PySide6.QtGui import QCursor, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import (
-    QApplication, QDialog, QFrame, QGraphicsOpacityEffect,
+    QAbstractButton, QApplication, QDialog, QFrame, QGraphicsOpacityEffect,
     QHBoxLayout, QLabel,
     QMessageBox as NativeMessageBox, QProgressBar, QPushButton, QSizeGrip,
+    QStyle, QStyleOptionProgressBar,
     QVBoxLayout, QWidget,
 )
 
@@ -549,13 +550,19 @@ class AppMessageBox(AppDialog):
 
 
 class AnimatedProgressBar(QProgressBar):
-    """数值变化平滑过渡；不确定进度仍使用系统自带的滚动动画。"""
+    """数值变化平滑过渡；不确定进度的扫光块裁在圆角轨道内。"""
+
+    # 轨道边框宽度，与 theme.py 里的进度条样式保持一致；
+    # 不确定进度的扫光块按轨道内轮廓裁切，避免压住边框/圆角而“出框”。
+    _TRACK_BORDER = 1.0
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._value_anim = QPropertyAnimation(self, b"animatedValue", self)
         self._value_anim.setDuration(240)
         self._value_anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._sweep_cache = None
+        self._sweep_key = None
 
     @Property(int)
     def animatedValue(self):
@@ -575,3 +582,93 @@ class AnimatedProgressBar(QProgressBar):
         self._value_anim.setStartValue(self.value())
         self._value_anim.setEndValue(target)
         self._value_anim.start()
+
+    def _sweep_layer(self):
+        """离屏图层：扫光先画在这里，再按轨道内轮廓裁切叠回。"""
+        dpr = self.devicePixelRatioF() or 1.0
+        key = (self.width(), self.height(), dpr)
+        if self._sweep_cache is None or self._sweep_key != key:
+            layer = QPixmap(max(1, round(self.width() * dpr)),
+                            max(1, round(self.height() * dpr)))
+            layer.setDevicePixelRatio(dpr)
+            self._sweep_cache = layer
+            self._sweep_key = key
+        self._sweep_cache.fill(Qt.transparent)
+        return self._sweep_cache
+
+    def paintEvent(self, event):
+        # 确定进度沿用系统绘制：填充本来就落在轨道内。
+        if self.minimum() != self.maximum():
+            super().paintEvent(event)
+            return
+
+        # 不确定进度：样式表把扫光画成方块并裁到控件矩形，
+        # 扫到两端时会盖住轨道边框、溢出圆角。改为离屏绘制后按轨道内轮廓裁切。
+        option = QStyleOptionProgressBar()
+        self.initStyleOption(option)
+        style = self.style()
+        painter = QPainter(self)
+        style.drawControl(QStyle.CE_ProgressBarGroove, option, painter, self)
+
+        layer = self._sweep_layer()
+        layer_painter = QPainter(layer)
+        style.drawControl(QStyle.CE_ProgressBarContents, option, layer_painter, self)
+        layer_painter.end()
+
+        inset = self._TRACK_BORDER
+        inner = QRectF(self.rect()).adjusted(inset, inset, -inset, -inset)
+        if inner.width() > 0 and inner.height() > 0:
+            radius = inner.height() / 2.0
+            clip = QPainterPath()
+            clip.addRoundedRect(inner, radius, radius)
+            painter.save()
+            painter.setRenderHint(QPainter.Antialiasing, True)
+            painter.setClipPath(clip)
+            painter.drawPixmap(0, 0, layer)
+            painter.restore()
+
+        style.drawControl(QStyle.CE_ProgressBarLabel, option, painter, self)
+        painter.end()
+
+
+class SquareCheck(QAbstractButton):
+    """与主页启用指示器同款的勾选框：空心圆角方框 → 绿底打勾。"""
+
+    def __init__(self, checked=False, size=18, parent=None):
+        super().__init__(parent)
+        self._size = size
+        self.setObjectName("SquareCheck")
+        self.setCheckable(True)
+        self.setChecked(bool(checked))
+        self.setFixedSize(size, size)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setAttribute(Qt.WA_Hover, True)
+
+    def sizeHint(self):
+        return QSize(self._size, self._size)
+
+    def enterEvent(self, event):
+        super().enterEvent(event)
+        self.update()
+
+    def leaveEvent(self, event):
+        super().leaveEvent(event)
+        self.update()
+
+    def focusInEvent(self, event):
+        super().focusInEvent(event)
+        self.update()
+
+    def focusOutEvent(self, event):
+        super().focusOutEvent(event)
+        self.update()
+
+    def paintEvent(self, _event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        theme.paint_check_box(
+            painter, self.rect(), self.isChecked(),
+            hover=self.underMouse(), enabled=self.isEnabled(),
+            focused=self.hasFocus())
+        painter.end()

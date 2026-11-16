@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "1.1"
+    [string]$Version = "1.2"
 )
 
 $ErrorActionPreference = "Stop"
@@ -70,11 +70,20 @@ if (Test-Path -LiteralPath $runtimeDataDir) {
     Remove-Item -LiteralPath $runtimeDataDir -Recurse -Force
 }
 
-foreach ($name in @(
-        "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "CHANGELOG.md",
-        "image.png", "image-1.png", "image-2.png", "image-3.png")) {
-    Copy-Item -LiteralPath (Join-Path $projectRoot $name) `
-        -Destination (Join-Path $packageDir $name)
+# 发行包只保留运行所需的程序与组件；README、许可/声明、更新日志、预览图
+# 等文档类文件随仓库分发，不进入 release 目录和最终 zip。
+$forbidden = @(
+    "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "CHANGELOG.md",
+    "image.png", "image-1.png", "image-2.png", "image-3.png")
+foreach ($name in $forbidden) {
+    if (Test-Path -LiteralPath (Join-Path $packageDir $name)) {
+        throw "发布包包含不应分发的文件: $name"
+    }
+}
+$stray = @(Get-ChildItem -LiteralPath $packageDir -File |
+    Where-Object { $_.Extension -match '^\.(md|png|jpe?g|webp|txt)$' })
+if ($stray.Count -gt 0) {
+    throw "发布包顶层包含非功能性文件: $($stray.Name -join ', ')"
 }
 Remove-Item -LiteralPath $rawDistDir -Recurse -Force
 

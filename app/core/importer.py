@@ -71,8 +71,9 @@ def extract_archive(archive, dest_dir, log=None, archiver_info=None):
 def find_vpk_sets(root):
     """递归找出目录下全部 vpk 集合，返回 [代表 _dir 或单文件绝对路径]。"""
     all_vpk = []
-    for dirpath, _dirs, files in os.walk(root):
-        for f in files:
+    for dirpath, dirs, files in os.walk(root):
+        dirs.sort()
+        for f in sorted(files):
             if f.lower().endswith(".vpk"):
                 all_vpk.append(os.path.join(dirpath, f))
     reps = []
@@ -445,14 +446,9 @@ def commit_staged(batch, library, candidates=None, progress=None):
         rec["category"] = candidate["category"]
         rec["item"] = candidate["item"]
         rec["tags"] = candidate["tags"]
-        if candidate["category"] in clf.AUTO_ENABLE_CATEGORIES:
-            try:
-                library.set_enabled(rec["file"], True)
-                rec["enabled"] = True
-            except Exception:
-                pass
         results.append(rec)
-    library.store.save_library()
+    # 导入后默认启用；同物品互斥组按候选顺序切换到最后一个（最新加入）mod
+    library.enable_new_mods([rec["file"] for rec in results])
     return results
 
 

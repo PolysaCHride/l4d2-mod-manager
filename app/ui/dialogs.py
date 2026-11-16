@@ -7,12 +7,12 @@ import time
 from PySide6.QtCore import (
     QEasingCurve, QPropertyAnimation, Qt, QTimer, Signal,
 )
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QPainter, QPixmap
 from PySide6.QtWidgets import (
-    QComboBox, QFileDialog, QFormLayout, QHBoxLayout, QInputDialog,
-    QCheckBox, QFrame, QGraphicsOpacityEffect, QLabel, QListWidget,
+    QApplication, QComboBox, QFileDialog, QFormLayout, QHBoxLayout, QInputDialog,
+    QFrame, QGraphicsOpacityEffect, QLabel, QListWidget,
     QListWidgetItem, QPlainTextEdit,
-    QPushButton,
+    QPushButton, QStyle, QStyledItemDelegate, QStyleOptionViewItem,
     QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QAbstractItemView,
     QScrollArea,
 )
@@ -24,7 +24,8 @@ from ..core import steam_api
 from ..core.classify import CATEGORIES, MELEE_NAMES, MED_NAMES, SPECIAL_NAMES, SURVIVOR_NAMES, WEAPON_SEG_NAMES
 from . import theme, util
 from .components import (
-    AnimatedProgressBar, AppDialog, AppMessageBox as QMessageBox, motion_enabled,
+    AnimatedProgressBar, AppDialog, AppMessageBox as QMessageBox, SquareCheck,
+    motion_enabled,
 )
 from .workers import (
     ArchiverInstallWorker, DetailsWorker, DownloadWorker, ImportAnalyzeWorker,
@@ -493,13 +494,12 @@ class ImportArchiveDialog(AppDialog):
         h.setContentsMargins(11, 8, 12, 8)
         h.setSpacing(10)
 
-        check = QCheckBox()
-        check.setObjectName("ImportSelect")
-        check.setChecked(bool(candidate.get("selected")))
+        check = SquareCheck(bool(candidate.get("selected")))
+        check.setAccessibleName("选择该 mod")
         check.setEnabled(self._selectable(candidate))
-        check.stateChanged.connect(
+        check.toggled.connect(
             lambda state, item=candidate: self._candidate_toggled(item, state))
-        h.addWidget(check)
+        h.addWidget(check, 0, Qt.AlignVCenter)
 
         thumb = QLabel()
         thumb.setObjectName("ImportThumb")
@@ -666,6 +666,38 @@ class ImportArchiveDialog(AppDialog):
         super().closeEvent(event)
 
 
+class WorkshopCheckDelegate(QStyledItemDelegate):
+    """把列表行里的系统勾选框换成与导入向导一致的空心圆角方框 / 绿底打勾。
+
+    勾选框的位置与点击范围仍取自样式表里的指示器区域，
+    因此单击方框切换勾选的交互保持不变；已在库的条目显示为禁用方框。
+    """
+
+    def paint(self, painter, option, index):
+        data = index.data(Qt.UserRole) or {}
+        existing = bool(data.get("existing"))
+        super().paint(painter, option, index)
+        state = index.data(Qt.CheckStateRole)
+        if state is None:
+            return
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        widget = option.widget
+        style = widget.style() if widget is not None else QApplication.style()
+        rect = style.subElementRect(
+            QStyle.SE_ItemViewItemCheckIndicator, opt, widget)
+        if rect.isEmpty():
+            return
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        theme.paint_check_box(
+            painter, rect,
+            checked=Qt.CheckState(state) == Qt.Checked,
+            hover=bool(option.state & QStyle.State_MouseOver),
+            enabled=(not existing) and bool(option.state & QStyle.State_Enabled))
+        painter.restore()
+
+
 # ---------------------------------------------------------------- 工坊搜索下载
 class WorkshopDialog(AppDialog):
     def __init__(self, main):
@@ -719,18 +751,29 @@ class WorkshopDialog(AppDialog):
 
         list_head = QHBoxLayout()
         list_head.setContentsMargins(2, 2, 2, 0)
+        list_head.setSpacing(8)
         list_title = QLabel("待下载物品")
         list_title.setObjectName("LogTitle")
-        list_hint = QLabel("双击条目可立即开始下载所选内容")
-        list_hint.setObjectName("Hint")
         list_head.addWidget(list_title)
+        self.btn_select_all = QPushButton("全选")
+        self.btn_select_all.setProperty("role", "bulk")
+        self.btn_select_all.setToolTip(
+            "勾选所有待下载物品；已在库的条目下载时会跳过，不参与全选")
+        self.btn_select_all.setEnabled(False)
+        self.btn_select_all.clicked.connect(lambda: self._set_all_links(True))
+        self.btn_select_none = QPushButton("清空")
+        self.btn_select_none.setProperty("role", "bulk")
+        self.btn_select_none.setToolTip("取消勾选所有待下载物品")
+        self.btn_select_none.setEnabled(False)
+        self.btn_select_none.clicked.connect(lambda: self._set_all_links(False))
+        list_head.addWidget(self.btn_select_all)
+        list_head.addWidget(self.btn_select_none)
         list_head.addStretch(1)
-        list_head.addWidget(list_hint)
         root.addLayout(list_head)
 
         self.link_list = QListWidget()
         self.link_list.setObjectName("WorkshopLinkList")
-        self.link_list.itemDoubleClicked.connect(lambda _it: self.download_selected())
+        self.link_list.setItemDelegate(WorkshopCheckDelegate(self.link_list))
         root.addWidget(self.link_list, 1)
         self.link_list.itemChanged.connect(lambda _it: self._refresh_download_button())
 
@@ -755,8 +798,8 @@ class WorkshopDialog(AppDialog):
         self.progress.setObjectName("DownloadProgress")
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
-        self.progress.setTextVisible(True)
-        self.progress.setFormat("%p%")
+        # 极简细线样式只有 9px 高，百分比文字会撑出轨道，改由上方标题/右侧进度信息表达。
+        self.progress.setTextVisible(False)
         progress_layout.addWidget(self.progress)
         self.progress_current = QLabel("解析链接后，任务阶段与当前模组会显示在这里")
         self.progress_current.setObjectName("ProgressCurrent")
@@ -780,7 +823,7 @@ class WorkshopDialog(AppDialog):
         self.log_box.document().setMaximumBlockCount(500)
         self.log_box.setPlaceholderText("任务开始后，这里会逐条显示当前正在执行的步骤…")
         btns = QHBoxLayout()
-        self.btn_download = QPushButton("下载所选（地图等自动启用，外观类默认禁用）")
+        self.btn_download = QPushButton("下载所选")
         self.btn_download.setProperty("accent", "primary")
         self.btn_download.setEnabled(False)
         self.btn_download.clicked.connect(self.download_selected)
@@ -837,6 +880,7 @@ class WorkshopDialog(AppDialog):
         self._unsupported_links = []
         self._unsupported_report_shown = False
         self.link_list.clear()
+        self._refresh_link_actions()
         self.btn_download.setEnabled(False)
         self._append_log("正在解析链接：识别到 %d 个物品 ID" % len(ids))
         self._set_progress_busy("正在解析链接", "读取工坊物品详情与合集结构…",
@@ -993,14 +1037,17 @@ class WorkshopDialog(AppDialog):
             # 合集摘要只用于说明来源，不参与勾选和下载。
             it.setFlags(Qt.ItemIsEnabled)
             it.setToolTip("下载时只处理下方识别出的合集中子物品")
+        elif existing:
+            # 已在库的条目不参与勾选，和导入压缩包的重复项一样显示为禁用方框。
+            it.setFlags(it.flags() & ~Qt.ItemIsUserCheckable)
+            it.setCheckState(Qt.Unchecked)
+            it.setToolTip("该模组已在本地库中（%s），下载时会自动跳过"
+                          % (existing.get("file") or existing.get("title") or wid))
+            self._append_log("已在库，已取消勾选：%s (%s)"
+                             % (existing.get("title") or title or wid, wid))
         else:
             it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
-            it.setCheckState(Qt.Unchecked if existing else Qt.Checked)
-            if existing:
-                it.setToolTip("该模组已在本地库中（%s），下载时会自动跳过"
-                              % (existing.get("file") or existing.get("title") or wid))
-                self._append_log("已在库，已取消勾选：%s (%s)"
-                                 % (existing.get("title") or title or wid, wid))
+            it.setCheckState(Qt.Checked)
         it.setData(Qt.UserRole, {
             "id": wid,
             "collection": children,
@@ -1008,6 +1055,7 @@ class WorkshopDialog(AppDialog):
             "existing": bool(existing),
         })
         self.link_list.addItem(it)
+        self._refresh_link_actions()
 
     # ---------- 下载 ----------
     def _link_checked_count(self):
@@ -1015,6 +1063,37 @@ class WorkshopDialog(AppDialog):
             1 for i in range(self.link_list.count())
             if self.link_list.item(i).checkState() == Qt.Checked
             and not (self.link_list.item(i).data(Qt.UserRole) or {}).get("collection"))
+
+    def _link_bulk_items(self):
+        """可批量勾选的条目：跳过合集摘要行与已在库的条目。"""
+        items = []
+        for index in range(self.link_list.count()):
+            item = self.link_list.item(index)
+            data = item.data(Qt.UserRole) or {}
+            if data.get("collection") or data.get("existing"):
+                continue
+            if not (item.flags() & Qt.ItemIsUserCheckable):
+                continue
+            items.append((item, data))
+        return items
+
+    def _set_all_links(self, checked):
+        """一键全选 / 清空待下载物品；已在库的条目不参与批量勾选。"""
+        items = self._link_bulk_items()
+        if not items:
+            return
+        self.link_list.blockSignals(True)
+        try:
+            for item, _data in items:
+                item.setCheckState(Qt.Checked if checked else Qt.Unchecked)
+        finally:
+            self.link_list.blockSignals(False)
+        self._refresh_download_button(force=True)
+
+    def _refresh_link_actions(self):
+        items = self._link_bulk_items()
+        self.btn_select_all.setEnabled(bool(items))
+        self.btn_select_none.setEnabled(bool(items))
 
     def _refresh_download_button(self, force=False):
         if not force and self._worker and self._worker.isRunning():
@@ -1035,10 +1114,12 @@ class WorkshopDialog(AppDialog):
                 continue
             data["existing"] = True
             item.setData(Qt.UserRole, data)
+            item.setFlags(item.flags() & ~Qt.ItemIsUserCheckable)
             item.setCheckState(Qt.Unchecked)
             item.setToolTip("该模组已在本地库中，下载时会自动跳过")
             if "已在库" not in item.text():
                 item.setText(item.text() + " · 已在库")
+        self._refresh_link_actions()
         self._refresh_download_button(force=True)
 
     def _selected_ids(self):
@@ -1178,8 +1259,7 @@ class WorkshopDialog(AppDialog):
             return
         msg = ("《%s》是合集《%s》的一个部件（共 %d 个子物品）。\n\n要下载整个合集吗？\n"
                "· 已在库中的部件 → 直接归入合集\n"
-               "· 缺失部件 → 立即下载并归组\n"
-               "· 地图等非冲突类下载后自动启用") % (item_id, col_title, n_children)
+               "· 缺失部件 → 立即下载并归组") % (item_id, col_title, n_children)
         if QMessageBox.question(self, "发现所属合集", msg) != QMessageBox.Yes:
             return
         col = {"cid": "ws_" + col_id, "name": col_title, "workshop_id": col_id,

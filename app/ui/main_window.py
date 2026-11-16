@@ -36,7 +36,7 @@ from .components import (
 from .workers import DetailsWorker, DownloadWorker, ScanWorker, UpdateCheckWorker
 
 APP_TITLE = "L4D2 MOD 军械库"
-APP_VERSION = "1.1"
+APP_VERSION = "1.2"
 # 项目仓库主页（设置页展示为超链接，检查更新基于它的 releases/latest）
 REPO_URL = "https://github.com/PolysaCHride/l4d2-mod-manager"
 CARD_W, CARD_H = 230, 234
@@ -45,6 +45,38 @@ GRID_MIN_GAP = 10
 
 # 单击卡片即启用切换（同物品互斥）的类别
 MUTEX_CATS = {"角色", "特感", "枪械", "近战", "医疗品", "投掷"}
+
+
+def mod_count_text(mods):
+    """状态栏模组统计：总数、启用数和禁用数。"""
+    records = list(mods.values()) if isinstance(mods, dict) else list(mods)
+    total = len(records)
+    enabled = sum(1 for record in records if record.get("enabled"))
+    return "Mod数 %d · 已启用 %d · 已禁用 %d" % (total, enabled, total - enabled)
+
+
+def sort_item_entries(entries, collection_names=None):
+    """按名称排序最后一级物品栏，全部/未指定固定在首两位。"""
+    names = collection_names or {}
+
+    def sort_name(entry):
+        label, kind, value = entry
+        if kind == "collection":
+            return str(names.get(value) or label)
+        if kind == "item":
+            return str(value or "")
+        return str(label)
+
+    def sort_key(entry):
+        _label, kind, value = entry
+        if kind == "all":
+            return (0, "", "", "")
+        if kind == "item" and not value:
+            return (1, "", "", "")
+        value_key = str(value or "").casefold()
+        return (2, sort_name(entry).casefold(), kind, value_key)
+
+    return sorted(entries, key=sort_key)
 
 
 class TitleBar(QWidget):
@@ -789,7 +821,7 @@ class MainWindow(QMainWindow):
         sh = QHBoxLayout(status)
         sh.setContentsMargins(16, 0, 16, 0)
         self.game_label = QLabel("● 检测中")
-        self.count_label = QLabel("")
+        self.count_label = QLabel(mod_count_text({}))
         self.path_label = QLabel("")
         sh.addWidget(self.game_label)
         sh.addWidget(self.count_label)
@@ -1036,7 +1068,6 @@ class MainWindow(QMainWindow):
         self._refresh_snapshot()
         self.refresh_items()
         self.refresh_cards()
-        self.count_label.setText("共 %d 个 mod · 解析 %d" % (stats.get("total", 0), stats.get("parsed", 0)))
 
     def _on_scan_error(self, e):
         QMessageBox.warning(self, "扫描失败", e)
@@ -1064,23 +1095,25 @@ class MainWindow(QMainWindow):
         byfile = set(m["file"] for m in mods)
         entries = [("全部 (%d)" % len(mods), "all", None)]
         collection_file_sets = set()
+        collection_names = {}
         # 地图分类下：合集以文件夹形态展示
         if cat == "地图":
             for cid, info in self.store.collections().items():
                 files = [f for f in info.get("files", []) if f in byfile]
                 if files:
                     collection_file_sets.add(frozenset(files))
-                    entries.append(("📁 %s (%d)" % (info.get("name", "合集"), len(files)),
+                    collection_names[cid] = str(info.get("name", "合集"))
+                    entries.append(("📁 %s (%d)" % (collection_names[cid], len(files)),
                                     "collection", cid))
         item_files = {}
         for m in mods:
             item_files.setdefault(m.get("item", ""), set()).add(m["file"])
-        ordered = sorted(item_files.items(), key=lambda kv: (-len(kv[1]), kv[0]))
-        if "" in item_files and frozenset(item_files[""]) not in collection_file_sets:
+        if "" in item_files:
             entries.append(("未指定 / 多项 (%d)" % len(item_files[""]), "item", ""))
-        for name, group_files in ordered:
+        for name, group_files in item_files.items():
             if name and frozenset(group_files) not in collection_file_sets:
                 entries.append(("%s (%d)" % (name, len(group_files)), "item", name))
+        entries = sort_item_entries(entries, collection_names)
         self._item_entries = entries
         for label, _kind, _val in entries:
             QListWidgetItem(label, self.item_list)
@@ -1206,7 +1239,7 @@ class MainWindow(QMainWindow):
         self._grid_order = [m["file"] for m in mods]
         self._layout_cards()
         self._refresh_snapshot()
-        self.count_label.setText("显示 %d / %d 个 mod" % (len(mods), len(self.store.mods())))
+        self.count_label.setText(mod_count_text(self.store.mods()))
 
     def _layout_cards(self):
         """按当前列数重新排列已创建的卡片，不重建预览图。"""
@@ -1384,8 +1417,6 @@ class MainWindow(QMainWindow):
             return
         self._refresh_snapshot()
         self.refresh_cards()
-        if disabled:
-            self.count_label.setText("已启用 %s（互斥禁用 %d 个同类）" % (file_name, len(disabled)))
 
     def adopt_all_flow(self):
         if self.library is None:

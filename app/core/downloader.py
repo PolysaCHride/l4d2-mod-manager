@@ -12,7 +12,6 @@ import tempfile
 import zipfile
 
 from . import steam_api
-from .classify import AUTO_ENABLE_CATEGORIES as _AUTO_ENABLE
 
 STEAMCMD_URL = "https://client-update.steamstatic.com/installer/steamcmd.zip"
 APPID = "550"
@@ -303,15 +302,8 @@ def download_and_import(store, library, item_id, log=None, progress=None, collec
     rec = library.register_new(
         os.path.basename(dest_vpk), source="download", enabled=False,
         preview=preview_path, title=title, workshop_id=str(item_id))
-    # 下载即用类（地图/脚本/音效等）下载后直接启用；冲突类/未分类默认禁用
-    if rec.get("category") in _AUTO_ENABLE:
-        try:
-            library.set_enabled(rec["file"], True)
-            rec["enabled"] = True
-            if log:
-                log("已自动启用（%s，非冲突类）" % rec["category"])
-        except Exception:
-            pass
+    # 下载后默认启用；同物品互斥组切换到最新下载的这一个
+    library.enable_new_mods([rec["file"]])
     if collection:
         cid = str(collection.get("cid") or "")
         children = [str(c) for c in (collection.get("children") or [])]
@@ -327,5 +319,5 @@ def download_and_import(store, library, item_id, log=None, progress=None, collec
             store.upsert_collection(cid, info)
             store.save_library()
     if log:
-        log("已导入：%s（%s）" % (rec["title"], "已启用" if rec.get("enabled") else "默认禁用"))
+        log("已导入并启用：%s" % rec["title"])
     return rec

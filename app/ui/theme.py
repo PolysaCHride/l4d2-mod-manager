@@ -38,6 +38,59 @@ def check_badge_pixmap(size=22, bg=None, fg="#14170f"):
     return pm
 
 
+def paint_check_box(painter, rect, checked, hover=False, enabled=True,
+                    focused=False, radius=5.0):
+    """统一的 mod 勾选框：空心圆角方框 → 绿底打勾。
+
+    配色与主页卡片上的启用指示器（main_window.CheckCircle）一致：
+    未选中只留一圈描边，选中后填充主色绿并画一个深色对勾。
+    """
+    box = QRectF(rect).adjusted(0.5, 0.5, -0.5, -0.5)
+    if box.width() < 4 or box.height() < 4:
+        return
+    radius = min(float(radius), box.width() * 0.3)
+    if not enabled:
+        ring = QColor("#343c2b")
+        fill = QColor("#2c3520") if checked else None
+        mark = QColor("#7c8668")
+    else:
+        ring = QColor(GREEN_L) if (checked or hover or focused) else QColor("#5a6d3e")
+        fill = QColor(GREEN) if checked else None
+        mark = QColor("#14170f")
+
+    pen = QPen(ring)
+    pen.setWidthF(1.3)
+    pen.setJoinStyle(Qt.RoundJoin)
+    painter.setPen(pen)
+    painter.setBrush(Qt.NoBrush if fill is None else fill)
+    painter.drawRoundedRect(box, radius, radius)
+
+    if not checked:
+        if enabled and hover:
+            tint = QColor(GREEN)
+            tint.setAlpha(26)
+            painter.setBrush(tint)
+            painter.setPen(Qt.NoPen)
+            inner = box.adjusted(1.0, 1.0, -1.0, -1.0)
+            painter.drawRoundedRect(
+                inner, max(1.0, radius - 1.0), max(1.0, radius - 1.0))
+        return
+
+    check = QPen(mark)
+    check.setWidthF(max(1.9, box.width() / 8.0))
+    check.setCapStyle(Qt.RoundCap)
+    check.setJoinStyle(Qt.RoundJoin)
+    painter.setPen(check)
+    painter.setBrush(Qt.NoBrush)
+    s = box.width()
+    left, top = box.left(), box.top()
+    painter.drawPolyline(QPolygonF([
+        QPointF(left + s * 0.24, top + s * 0.52),
+        QPointF(left + s * 0.42, top + s * 0.70),
+        QPointF(left + s * 0.76, top + s * 0.30),
+    ]))
+
+
 def trash_pixmap(size=16, color="#d97b6c"):
     """垃圾桶线性图标（删除按钮用）。"""
     pm = QPixmap(size, size)
@@ -214,13 +267,13 @@ QMenu::item { padding: 7px 22px; border-radius: 3px; }
 QMenu::item:selected { background: %(GREEN_BG)s; color: %(GREEN_L)s; }
 QToolTip { background: %(PANEL)s; color: %(TEXT)s; border: 1px solid %(BORDER_L)s; padding: 4px; }
 
-/* ---- 进度条：胶囊型，轨道与背景同色，填充内缩留缝 ---- */
+/* ---- 进度条：轨道与填充共用同一轮廓（不加内边距，填充圆角 = 轨道圆角 − 边框） ---- */
 QProgressBar {
   background: %(BG)s; border: 1px solid %(BORDER)s; border-radius: 10px;
-  padding: 3px; min-height: 20px; max-height: 20px;
+  padding: 0px; min-height: 20px; max-height: 20px;
   text-align: center; color: %(TEXT)s; font-size: 10px;
 }
-QProgressBar::chunk { background: %(GREEN)s; border-radius: 6px; }
+QProgressBar::chunk { background: %(GREEN)s; border-radius: 9px; }
 
 /* ---- 工坊下载：合并任务卡 + 当前模组提示 ---- */
 QFrame#DownloadProgressPanel {
@@ -242,26 +295,42 @@ QFrame#DownloadProgressPanel {
   color: #c5cfaa; font-size: 12px; font-weight: bold; letter-spacing: 1px;
   background: transparent;
 }
+/* 极简细线：轨道与填充都是一条 9px 细胶囊，纯色不渐变 */
 QProgressBar#DownloadProgress {
-  background: #090b06; border: 1px solid #3b4724; border-radius: 9px;
-  padding: 3px; min-height: 25px; max-height: 25px;
-  color: #eff5dc; font-size: 11px; font-weight: bold; text-align: center;
+  background: #0a0c08; border: 1px solid #2c3324; border-radius: 4px;
+  padding: 0px; min-height: 7px; max-height: 7px;
 }
-QProgressBar#DownloadProgress::chunk {
-  border-radius: 6px;
-  background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                              stop:0 #65772a, stop:0.55 #98b441, stop:1 #cadf72);
-}
+QProgressBar#DownloadProgress::chunk { background: %(GREEN)s; border-radius: 3px; }
 
-/* ---- 滚动条：透明轨道融入面板，胶囊滑块内缩 ---- */
-QScrollBar:vertical { background: transparent; width: 14px; border: none; margin: 3px 2px; }
-QScrollBar::handle:vertical { background: #39412a; border-radius: 5px; min-height: 30px; }
-QScrollBar::handle:vertical:hover { background: %(BORDER_L)s; }
-QScrollBar:horizontal { background: transparent; height: 14px; border: none; margin: 2px 3px; }
-QScrollBar::handle:horizontal { background: #39412a; border-radius: 5px; min-width: 30px; }
-QScrollBar::handle:horizontal:hover { background: %(BORDER_L)s; }
-QScrollBar::add-line, QScrollBar::sub-line { height: 0; width: 0; }
+/* ---- 滚动条：比面板更深的凹槽轨道 + 贴合凹槽的胶囊滑块（横竖同款，全窗口统一） ---- */
+QScrollBar:vertical {
+  background: #090c06; width: 13px; margin: 2px 0;
+  border: none; border-radius: 6px;
+}
+QScrollBar::handle:vertical {
+  background: #3f4a30; min-height: 34px;
+  margin: 2px; border-radius: 4px;
+}
+QScrollBar::handle:vertical:hover { background: #52633c; }
+QScrollBar::handle:vertical:pressed { background: #5c6d42; }
+QScrollBar:horizontal {
+  background: #090c06; height: 13px; margin: 0 2px;
+  border: none; border-radius: 6px;
+}
+QScrollBar::handle:horizontal {
+  background: #3f4a30; min-width: 34px;
+  margin: 2px; border-radius: 4px;
+}
+QScrollBar::handle:horizontal:hover { background: #52633c; }
+QScrollBar::handle:horizontal:pressed { background: #5c6d42; }
+QScrollBar::add-line, QScrollBar::sub-line {
+  width: 0; height: 0; border: none; background: none;
+}
 QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
+/* 滚动条容器与角落保持透明，轨道圆角直接嵌在面板里，不露直角底色 */
+QWidget#qt_scrollarea_vcontainer, QWidget#qt_scrollarea_hcontainer,
+QWidget#qt_scrollarea_corner { background: transparent; }
+QAbstractScrollArea::corner { background: transparent; }
 
 /* ---- 状态栏 / 日志 ---- */
 #StatusBar { background: %(PANEL2)s; border-top: 1px solid %(BORDER)s; }
@@ -308,8 +377,8 @@ QLabel#ImportDropHint { color: %(TEXT_DIM)s; font-size: 11px; background: transp
 QFrame#ImportStatusPanel { background: #12160c; border: 1px solid #2d351d; border-radius: 5px; }
 QLabel#ImportStatus { color: #d6dfbb; font-size: 12px; font-weight: bold; background: transparent; }
 QProgressBar#ImportProgress {
-  background: #090b06; border: 1px solid #394424; border-radius: 4px;
-  min-height: 7px; max-height: 7px; padding: 1px;
+  background: #0a0c08; border: 1px solid #2c3324; border-radius: 4px;
+  padding: 0px; min-height: 7px; max-height: 7px;
 }
 QProgressBar#ImportProgress::chunk { background: %(GREEN)s; border-radius: 3px; }
 QLabel#ImportResultTitle { color: #d9e1c2; font-size: 13px; font-weight: bold; letter-spacing: 1px; }
@@ -569,6 +638,17 @@ QPushButton[accent="danger"] {
 QPushButton[accent="danger"]:hover {
   background: #2a1510; border-color: #a64c3a; color: #ffac98;
 }
+/* 列表头的批量操作（全选 / 清空），比正文按钮矮一档 */
+QPushButton[role="bulk"] {
+  padding: 1px 10px; font-size: 11px; font-weight: 600;
+  border-radius: 7px; background: #171c12; border-color: #343c2b;
+}
+QPushButton[role="bulk"]:hover {
+  background: %(GREEN_BG)s; border-color: #52643a; color: %(GREEN_L)s;
+}
+QPushButton[role="bulk"]:disabled {
+  color: #4d5544; border-color: #262c20; background: #14170f;
+}
 
 /* ---- 开关 ---- */
 QCheckBox::indicator {
@@ -618,17 +698,13 @@ QToolTip {
   border-radius: 7px; padding: 5px 7px;
 }
 
-/* ---- 进度条 ---- */
+/* ---- 进度条：细线轨道 + 同轮廓纯色填充（不加内边距，填充圆角 = 轨道圆角 − 边框） ---- */
 QProgressBar {
   background: #090b07; border: 1px solid #333b2c; border-radius: 10px;
-  padding: 3px; min-height: 20px; max-height: 20px;
+  padding: 0px; min-height: 20px; max-height: 20px;
   text-align: center; color: %(TEXT)s; font-size: 10px;
 }
-QProgressBar::chunk {
-  background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                              stop:0 #7f9a3c, stop:1 %(GREEN)s);
-  border-radius: 6px;
-}
+QProgressBar::chunk { background: %(GREEN)s; border-radius: 9px; }
 QFrame#DownloadProgressPanel {
   background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
                               stop:0 #141810, stop:1 #191e15);
@@ -644,35 +720,43 @@ QFrame#DownloadProgressPanel {
   color: #cad3b7; font-size: 12px; font-weight: 700;
   letter-spacing: 0.8px; background: transparent;
 }
+/* 极简细线：轨道与填充都是一条 9px 细胶囊，纯色不渐变 */
 QProgressBar#DownloadProgress {
-  background: #090b07; border: 1px solid #40502e; border-radius: 10px;
-  padding: 3px; min-height: 25px; max-height: 25px;
-  color: #f1f6e4; font-size: 11px; font-weight: 700; text-align: center;
+  background: #0a0c08; border: 1px solid #2c3324; border-radius: 4px;
+  padding: 0px; min-height: 7px; max-height: 7px;
 }
-QProgressBar#DownloadProgress::chunk {
-  border-radius: 7px;
-  background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                              stop:0 #718632, stop:0.55 #9dbb48, stop:1 #d2e982);
-}
+QProgressBar#DownloadProgress::chunk { background: %(GREEN)s; border-radius: 3px; }
 
-/* ---- 滚动条 ---- */
+/* ---- 滚动条：比面板更深的凹槽轨道 + 贴合凹槽的胶囊滑块（横竖同款，全窗口统一） ---- */
 QScrollArea { background: transparent; border: none; }
 QScrollBar:vertical {
-  background: transparent; width: 14px; border: none; margin: 3px 2px;
+  background: #090c06; width: 13px; margin: 2px 0;
+  border: none; border-radius: 6px;
 }
 QScrollBar::handle:vertical {
-  background: #3d472f; border-radius: 5px; min-height: 34px;
+  background: #3f4a30; min-height: 34px;
+  margin: 2px; border-radius: 4px;
 }
 QScrollBar::handle:vertical:hover { background: #52633c; }
+QScrollBar::handle:vertical:pressed { background: #5c6d42; }
 QScrollBar:horizontal {
-  background: transparent; height: 14px; border: none; margin: 2px 3px;
+  background: #090c06; height: 13px; margin: 0 2px;
+  border: none; border-radius: 6px;
 }
 QScrollBar::handle:horizontal {
-  background: #3d472f; border-radius: 5px; min-width: 34px;
+  background: #3f4a30; min-width: 34px;
+  margin: 2px; border-radius: 4px;
 }
 QScrollBar::handle:horizontal:hover { background: #52633c; }
-QScrollBar::add-line, QScrollBar::sub-line { height: 0; width: 0; }
+QScrollBar::handle:horizontal:pressed { background: #5c6d42; }
+QScrollBar::add-line, QScrollBar::sub-line {
+  width: 0; height: 0; border: none; background: none;
+}
 QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
+/* 滚动条容器与角落保持透明，轨道圆角直接嵌在面板里，不露直角底色 */
+QWidget#qt_scrollarea_vcontainer, QWidget#qt_scrollarea_hcontainer,
+QWidget#qt_scrollarea_corner { background: transparent; }
+QAbstractScrollArea::corner { background: transparent; }
 
 /* ---- 状态栏 / 文本 ---- */
 #StatusBar {
@@ -769,8 +853,8 @@ QLabel#ImportStatus {
   color: #dce4c8; font-size: 12px; font-weight: 700; background: transparent;
 }
 QProgressBar#ImportProgress {
-  background: #090b07; border: 1px solid #3a4629; border-radius: 4px;
-  min-height: 7px; max-height: 7px; padding: 1px;
+  background: #0a0c08; border: 1px solid #2c3324; border-radius: 4px;
+  padding: 0px; min-height: 7px; max-height: 7px;
 }
 QProgressBar#ImportProgress::chunk { background: %(GREEN)s; border-radius: 3px; }
 QLabel#ImportResultTitle {
@@ -790,16 +874,9 @@ QFrame#ImportCandidate[duplicate="true"] {
   background: #11140e; border-color: #252b20;
 }
 QFrame#ImportCandidate QLabel { background: transparent; }
-QCheckBox#ImportSelect::indicator {
-  width: 18px; height: 18px; border-radius: 5px;
-  background: #0b0e07; border: 1px solid #5a6d3e;
-}
-QCheckBox#ImportSelect::indicator:hover { border-color: %(GREEN_L)s; }
-QCheckBox#ImportSelect::indicator:checked {
-  background: %(GREEN)s; border: 1px solid %(GREEN_L)s;
-}
-QCheckBox#ImportSelect::indicator:disabled {
-  background: #151811; border-color: #303725;
+/* 勾选框由 SquareCheck / WorkshopCheckDelegate 自绘，这里只清掉控件底色 */
+QAbstractButton#SquareCheck {
+  background: transparent; border: none; padding: 0; margin: 0;
 }
 QLabel#ImportThumb {
   background: #0b0e07; border: 1px solid #303725; border-radius: 7px;
@@ -828,6 +905,11 @@ QLabel#WorkshopSectionTitle {
 QListWidget#WorkshopLinkList {
   background: #0e110b; border: 1px solid #30382a; border-radius: 12px;
   padding: 5px;
+}
+/* 原生指示器只保留占位区域，方框与对勾由 WorkshopCheckDelegate 自绘 */
+QListWidget#WorkshopLinkList::indicator {
+  width: 18px; height: 18px;
+  background: transparent; border: 0px;
 }
 QFrame#WorkshopResult {
   background: #161a12; border: 1px solid #2b3224; border-radius: 10px;

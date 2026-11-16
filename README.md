@@ -60,7 +60,7 @@ Steam 创意工坊模组默认存放在 `left4dead2/addons/workshop/`。游戏�
 
 下载前会检查本地模组库和工坊订阅中的重复内容，已入库的条目会自动跳过。下载优先使用 `file_url` 直连，失败后自动切换至 SteamCMD，并显示当前阶段、进度和实时日志。
 
-非冲突类模组下载后自动启用，外观类模组默认禁用，避免多个模组同时覆盖同一物品。
+下载的模组默认启用；同一武器、角色等互斥组会自动切换到最新下载的一个，并禁用同组旧模组。
 
 #### 网络环境
 
@@ -78,6 +78,8 @@ Steam 创意工坊模组默认存放在 `left4dead2/addons/workshop/`。游戏�
 
 对于 `_dir.vpk + _NNN.vpk` 形式的多卷 VPK，管理器会自动识别为同一组文件，并通过内容指纹检查重复模组，避免重复入库。
 
+导入后的 mod 默认启用；同一物品同时导入多个互斥类 mod 时，只保留最后加入（最新）的一个。
+
 ### 地图合集与文件安全
 
 - 可识别工坊地图合集，将已有组件归入同一合集，并继续下载缺失组件。
@@ -88,7 +90,7 @@ Steam 创意工坊模组默认存放在 `left4dead2/addons/workshop/`。游戏�
 
 最新正式版请前往 [GitHub Releases](https://github.com/PolysaCHride/l4d2-mod-manager/releases/latest) 下载。
 
-1. 下载并解压 `L4D2 Mod Manager-v1.1-win64.zip`。
+1. 下载并解压 `L4D2 Mod Manager-v1.2-win64.zip`。
 2. 运行 `L4D2 Mod Manager.exe`，无需安装。
 3. 在「设置」中自动检测或手动选择 L4D2 安装目录。
 4. 建议先使用「一键管理」整理现有模组，再按需导入或下载新模组。

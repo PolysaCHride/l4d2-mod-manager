@@ -545,6 +545,38 @@ class Library(object):
         self.store.save_library()
         return rec
 
+    def enable_new_mods(self, file_names):
+        """批量启用新入库的 mod；同一互斥组只保留最后入库的一个。
+
+        互斥组内其余已启用 mod（包括本批更早的与库中已有的）自动禁用，
+        因此导入/下载后默认切换到最新加入的 mod。返回被自动禁用的文件名。
+        """
+        names = [str(name) for name in file_names if name]
+        if not names:
+            return []
+        al = AddonList.load(self.paths.addonlist_file)
+        winners = {}
+        for name in names:
+            rec = self.store.get_mod(name)
+            if rec is None:
+                continue
+            al.set(name, "1")
+            rec["enabled"] = True
+            if rec.get("category") in clf.CONFLICT_CATEGORIES and rec.get("item"):
+                winners[(rec["category"], rec["item"])] = name
+        disabled = []
+        if winners:
+            for rec in self.store.mods().values():
+                winner = winners.get((rec.get("category"), rec.get("item")))
+                if not winner or rec["file"] == winner or not rec.get("enabled"):
+                    continue
+                al.set(rec["file"], "0")
+                rec["enabled"] = False
+                disabled.append(rec["file"])
+        al.save(self.paths.addonlist_file)
+        self.store.save_library()
+        return disabled
+
     # ---------- 一键纳入管理 ----------
     def _enabled_before_adopt(self, al):
         """记录一键整理前会生效的顶层/工坊文件名。"""
