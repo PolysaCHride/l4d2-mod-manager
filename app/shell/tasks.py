@@ -36,6 +36,75 @@ def scan(job, library):
     return stats
 
 
+def _count_adopt_work(library):
+    """粗算 adopt_all 的工作量，只用于进度条分母。
+
+    统计三部分：顶层 vpk 数 + 子目录里的 vpk 组数 + workshop 订阅项数。
+    不精确也没关系 —— 进度条只是参考，core 的实际推进会自报 done。
+    """
+    import os as _os
+    from app.core import vpk as _vpk
+
+    addons = library.paths.addons_dir
+    top = len(library.list_addon_files())
+    sub = 0
+    try:
+        for dirpath, dirs, files in _os.walk(addons):
+            rel = _os.path.relpath(dirpath, addons).lower()
+            if rel == "workshop" or rel.startswith("workshop" + _os.sep):
+                dirs[:] = []
+                continue
+            dirs[:] = [d for d in dirs if d.lower() != "workshop"]
+            if _os.path.abspath(dirpath).lower() == _os.path.abspath(addons).lower():
+                continue   # 顶层单独算
+            for f in files:
+                if f.lower().endswith(".vpk"):
+                    sub += 1
+                    break  # 一个子目录算一组
+    except OSError:
+        pass
+    try:
+        ws = len(library.workshop_items())
+    except Exception:
+        ws = 0
+    return max(top + sub + ws, 1)
+
+
+def adopt_all(job, library):
+    """全量采纳（library.adopt_all）：把 addons 下所有 vpk 纳入管理。
+
+    与 scan() 的区别：**这个会移动文件**。
+      · 顶层未登记的 vpk    → 补记进库（addonlist 记 "1"，保持游戏当前行为）
+      · 非 workshop 子目录   → 整组移到顶层（记 "0"，禁用 —— 游戏本就不扫子目录）
+      · workshop/ 子目录     → 走迁移，保留启用状态
+
+    返回 core 的 stats：{adopted, moved, migrated, deduped,
+                        auto_enabled, auto_disabled, migrated_ids,
+                        conflicts, errors}
+    """
+    # core 的 adopt_all 不预先统计总数，progress 第三参是「当前项名字」。
+    # 但 job.progress 需要 total 才算百分比，所以这里先粗算一个工作总量：
+    # 顶层 vpk 数 + 子目录 vpk 组数 + workshop 项数。只是进度参考，不影响业务。
+    try:
+        total_work = _count_adopt_work(library)
+    except Exception:
+        total_work = 1
+    state = {"done": 0}
+
+    job.progress("正在整理", 0, total_work, phase="adopt")
+
+    def progress(text, done=0, current=""):
+        # ⚠️ core 里 progress 约定是 (text, done, current_name)，
+        # 第三参是**名字**不是总数（library.py:699/731）。
+        # 把第三参当 total 会 `int(done * 100 / total)` 拿字符串做除法 → TypeError。
+        state["done"] = max(state["done"], int(done or 0))
+        job.progress(text, min(state["done"], total_work), total_work, phase="adopt")
+
+    stats = library.adopt_all(progress=progress)
+    job.progress("整理完成", 1, 1, phase="adopt")
+    return stats
+
+
 def analyze_archives(job, library, archive_paths, archiver_info=None):
     """解压并解析压缩包，返回批次。"""
     job.log("开始解析 %d 个压缩包" % len(archive_paths))

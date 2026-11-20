@@ -157,11 +157,27 @@
   const fmtSize = (mb) => (mb >= 1024 ? (mb / 1024).toFixed(1) + ' GB' : mb.toFixed(1) + ' MB');
   const fmtAgo = (days) => (days <= 1 ? '今天' : days < 7 ? days + ' 天前' : Math.floor(days / 7) + ' 周前');
 
+  // 全局快捷键（只有这三个，与旧 UI 对齐）：
+  //   Ctrl+K  聚焦搜索（旧 UI 是 Ctrl+F，这里两个都收，尊重两种肌肉记忆）
+  //   F5      刷新（只读重扫，同顶栏「刷新」）
+  //   Esc     关弹窗（由各弹窗自己的监听处理）
+  // 卡片**不再**绑定 Enter/Space 触发启停 —— 那是键盘误触的高危来源。
   document.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
       e.preventDefault();
       $('#search').focus();
       $('#search').select();
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) {
+      e.preventDefault();
+      $('#search').focus();
+      $('#search').select();
+      return;
+    }
+    if (e.key === 'F5') {
+      e.preventDefault();
+      runScan();
     }
   });
 
@@ -533,7 +549,7 @@
 
     grid.innerHTML = list.map((m) => {
       const shown = m.alias || m.name;
-      return `<article class="mod-card ${m.id === state.selectedId ? 'selected' : ''} ${m.enabled ? 'is-on' : ''}" data-mod="${m.id}" tabindex="0" title="${m.enabled ? '双击停用' : '双击启用'}">
+      return `<article class="mod-card ${m.id === state.selectedId ? 'selected' : ''} ${m.enabled ? 'is-on' : ''}" data-mod="${m.id}" tabindex="0" title="单击查看详情 · ${m.enabled ? '双击停用' : '双击启用'}">
         <div class="mod-thumb">
           <img src="${esc(m.img)}" alt="${esc(shown)}" loading="lazy">
           ${m.enabled ? '<span class="badge-on">已启用</span>' : ''}
@@ -550,13 +566,13 @@
       // 选中只改类名，不重建 DOM —— 否则单击后节点被替换，双击永远收不到第二次点击
       card.addEventListener('click', () => selectCard(card.dataset.mod));
       card.addEventListener('dblclick', () => toggleMod(card.dataset.mod));
+      // 键盘：只保留 Enter = 选中（打开详情）。
+      // Space 切换启停已移除 —— 空格是最容易误触的键，
+      // 而启停会改写 addonlist.txt 并可能顶掉同组模组。
       card.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
           e.preventDefault();
           selectCard(card.dataset.mod);
-        } else if (e.key === ' ') {
-          e.preventDefault();
-          toggleMod(card.dataset.mod);
         }
       });
     });
@@ -581,7 +597,7 @@
       if (!m) return;
       card.classList.toggle('selected', m.id === state.selectedId);
       card.classList.toggle('is-on', !!m.enabled);
-      card.title = m.enabled ? '双击停用' : '双击启用';
+      card.title = '单击查看详情 · ' + (m.enabled ? '双击停用' : '双击启用');
       let badge = card.querySelector('.badge-on');
       if (m.enabled && !badge) {
         badge = document.createElement('span');
@@ -610,12 +626,24 @@
     const group = sameGroup(m);
     const shown = m.alias || m.name;
 
+    // 分类行：用户手工改过分类时（autoCat !== null），
+    // 把「用户设的分类」作为主值，把「管理器识别到的」置灰附在下面 ——
+    // 让用户看得见自己覆盖掉了什么，而不是悄悄消失。
+    const userCat = m.item ? `${m.cat} / ${m.item}` : m.cat;
+    const autoCatText = m.autoCat === null
+      ? ''
+      : (m.autoItem ? `${m.autoCat} / ${m.autoItem}` : (m.autoCat || '未分类'));
+    const catCell = m.autoCat === null
+      ? esc(userCat)
+      : `${esc(userCat)}<span class="spec-auto" title="模组管理器识别到的分类">`
+        + `识别为 ${esc(autoCatText)}</span>`;
+
     const specRows = [
-      ['文件', m.file],
-      ['分类', m.item ? `${m.cat} / ${m.item}` : m.cat],
-      ['大小', fmtSize(m.size)],
-      ['入库时间', m.addedDate || '—'],
-      ...(m.ws ? [['工坊', m.ws]] : []),
+      ['文件', m.file, ''],
+      ['分类', userCat, catCell, true],   // 第 4 项 = 已预渲染 HTML
+      ['大小', fmtSize(m.size), ''],
+      ['入库时间', m.addedDate || '—', ''],
+      ...(m.ws ? [['工坊', m.ws, '']] : []),
     ];
 
     const groupRows = [
@@ -641,7 +669,9 @@
       </div>
 
       <div class="spec-list">
-        ${specRows.map(([k, v]) => `<div class="spec-row"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`).join('')}
+        ${specRows.map(([k, v, html, isRaw]) =>
+          `<div class="spec-row"><span class="k">${esc(k)}</span>`
+          + `<span class="v">${isRaw ? html : esc(v)}</span></div>`).join('')}
       </div>
 
       ${group.length ? `<div class="group-panel">
@@ -841,6 +871,13 @@
       // 会得到 "123.0" 之类的值，且 === 比较全部失效。
       ws: apiMod.workshop_id == null ? '' : String(apiMod.workshop_id),
       mutex: !!apiMod.mutex,
+      // 用户手工改过分类：category 是用户值，autoCat/autoItem 是管理器识别的值。
+      // autoCat 为 null 表示从没改过 —— 前端据此决定要不要置灰展示。
+      pinned: !!apiMod.pinned,
+      autoCat: apiMod.autoCategory == null ? null : (apiMod.autoCategory || ''),
+      autoItem: apiMod.autoItem == null ? null : (apiMod.autoItem || ''),
+      // 所属合集 ID（"ws_<数字>"），空串表示无归属
+      coll: apiMod.collection || '',
     };
   }
 
@@ -1086,6 +1123,83 @@
         setStatus('error', {
           text: msg || '扫描失败',
           action: () => runScan(),
+        });
+      });
+  }
+
+  // ---------------------------------------------------------------- adopt flow
+  const adoptFlow = { running: false };
+
+  /**
+   * 「整理」= core 的 adopt_all：把 addons 下所有 vpk 纳入管理。
+   * 与「刷新」（start_scan / rescan，只读）不同，**这个会移动文件**：
+   *   · 顶层未登记的 vpk  → 补记进库
+   *   · 非 workshop 子目录 → 整组移到顶层（禁用）
+   *   · workshop/ 子目录   → 迁移并保留启用状态
+   * 所以必须先确认，且游戏运行中禁止（后端也兜了一层）。
+   */
+  async function runAdopt() {
+    if (adoptFlow.running) return;
+
+    const blockedAdopt = writeBlocked();
+    if (blockedAdopt) {
+      await infoDialog({
+        title: state.gameUnknown ? '无法确认游戏状态' : '游戏运行中',
+        tone: 'warning', text: blockedAdopt,
+      });
+      return;
+    }
+
+    const ok = await confirmDialog({
+      title: '整理模组库',
+      tone: 'question',
+      text: '整理会把 addons 目录下所有 vpk 纳入管理，并整理子目录：\n'
+          + '· 子目录里的模组会被移动到 addons 顶层（默认停用）\n'
+          + '· workshop 订阅项会被迁移到顶层（保留启用状态）\n'
+          + '· 已在顶层且登记过的模组不受影响\n\n'
+          + '此操作会移动文件。继续？',
+      confirm: '开始整理',
+    });
+    if (!ok) return;
+
+    adoptFlow.running = true;
+    const res = await window.bridge.start_adopt();
+    if (!res || !res.ok) {
+      adoptFlow.running = false;
+      await infoDialog({ title: '无法整理', tone: 'danger',
+                         text: (res && res.error) || '整理失败' });
+      return;
+    }
+
+    setStatus('scanning', { label: '整理中', pct: 0 });
+
+    runJob(res.job_id,
+      (p) => setStatus('scanning', { label: p.label || '整理中', pct: p.percent || 0 }),
+      async (result) => {
+        adoptFlow.running = false;
+        setStatus('idle');
+        await reloadMods();
+        renderFilters(); renderGrid(); renderInspector();
+
+        const r = result || {};
+        const moved = r.moved || 0;
+        const migrated = r.migrated || 0;
+        const adopted = r.adopted || 0;
+        const errors = r.errors || [];
+        await infoDialog({
+          title: '整理完成',
+          tone: errors.length ? 'warning' : 'info',
+          text: `新增登记 ${adopted} 个，移动子目录 ${moved} 个，迁移订阅 ${migrated} 个`
+                + (r.deduped ? `，去重 ${r.deduped} 个` : '')
+                + (errors.length ? `；${errors.length} 个出错` : '') + '。',
+          rows: errors.slice(0, 8).map((e) => ({ name: String(e), tag: '失败', tone: 'bad' })),
+        });
+      },
+      async (msg) => {
+        adoptFlow.running = false;
+        setStatus('error', {
+          text: msg || '整理失败',
+          action: () => runAdopt(),
         });
       });
   }
@@ -1612,8 +1726,11 @@
     toast('已按「' + current[next] + '」排序');
   });
 
+  // 「刷新」= 只读重扫（rescan）：同步 addonlist 状态、重建记录。
+  // 「整理」= 全量采纳（adopt_all）：会把子目录 / workshop 里的 vpk 移到顶层。
+  // 两者原来都绑 runScan，按钮没有任何区别 —— 语义不符，2026-11-20 修正。
   $('#refreshBtn').addEventListener('click', () => runScan());
-  $('#tidyBtn').addEventListener('click', () => runScan());
+  $('#tidyBtn').addEventListener('click', () => runAdopt());
 
   $('#search').addEventListener('input', (e) => {
     state.query = e.target.value.trim();
@@ -1716,14 +1833,16 @@
   const onboardBtn = $('#onboardStart');
   if (onboardBtn) {
     onboardBtn.addEventListener('click', async () => {
+      // 首屏「开始整理」承诺的是整理，所以走 adopt_all 而不是只读重扫。
+      // （空库时两者结果接近，但语义一致才不会误导。）
       onboardBtn.disabled = true;
       onboardBtn.textContent = '正在整理…';
-      const res = await window.bridge.start_scan();
+      const res = await window.bridge.start_adopt();
       if (!res || !res.ok) {
         onboardBtn.disabled = false;
         onboardBtn.textContent = '开始整理';
         await infoDialog({ title: '无法整理', tone: 'danger',
-                           text: (res && res.error) || '扫描失败' });
+                           text: (res && res.error) || '整理失败' });
         return;
       }
       runJob(res.job_id,

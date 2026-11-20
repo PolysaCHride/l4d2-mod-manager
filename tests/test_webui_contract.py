@@ -42,6 +42,13 @@ class TestToModContract(unittest.TestCase):
             "file", "title", "alias", "category", "item",
             "size", "sizeText", "enabled", "workshop_id", "thumb",
             "added", "addedText", "pinned", "mutex",
+            # 2026-11-20 新增：
+            # autoCategory/autoItem —— 用户改过分类后，保留分类器原本的结果
+            # （前端把识别结果置灰展示，见 ALIGNMENT_AUDIT C）
+            "autoCategory", "autoItem",
+            # collection —— 所属合集 ID，之前被丢弃导致合集在新 UI 完全隐形
+            # （见 ALIGNMENT_AUDIT A-1）
+            "collection",
         })
 
     def test_dropped_fields_are_explicit(self):
@@ -55,11 +62,39 @@ class TestToModContract(unittest.TestCase):
 
         # 有意不传给前端的字段
         # clfv 是 library 扫描时才算出来的分类器版本标记，不在 new_mod_record 里
+        # auto_category / auto_item 是 set_category 时才写入的，同样不在 new_mod_record 里
+        # （它们走 autoCategory / autoItem 传给前端，不在此列）
+        # collection 已于 2026-11-20 改为传给前端（A-1），从丢弃清单移出
         DROPPED = {"tags", "added_at", "updated_at", "source",
-                   "collection", "preview", "mtime"}
+                   "preview", "mtime"}
 
         self.assertEqual(core_fields - out, DROPPED,
                          "core 加了新字段，或者改了丢弃清单")
+
+    def test_auto_fields_absent_when_never_overridden(self):
+        """没用过用户分类时，autoCategory/autoItem 必须是 None。
+
+        前端靠 None 判断「要不要置灰展示识别结果」。
+        如果这里变成空串，前端会把空分类也画出来。
+        """
+        out = self.api._to_mod(self._rec())
+        self.assertIsNone(out["autoCategory"])
+        self.assertIsNone(out["autoItem"])
+
+    def test_auto_fields_present_after_manual_override(self):
+        """用户改过分类后，auto_* 要原样透出，且与当前分类不同。"""
+        rec = self._rec(category="杂项", auto_category="角色", auto_item="Ellis")
+        out = self.api._to_mod(rec)
+        self.assertEqual(out["category"], "杂项")
+        self.assertEqual(out["autoCategory"], "角色")
+        self.assertEqual(out["autoItem"], "Ellis")
+
+    def test_collection_is_passed_through(self):
+        """合集归属必须透出，否则新 UI 完全看不见合集（A-1 的根因）。"""
+        rec = self._rec(collection="ws_189971863")
+        self.assertEqual(self.api._to_mod(rec)["collection"], "ws_189971863")
+        # 没有归属时是空串，不是 None —— 前端用 === '' 判断
+        self.assertEqual(self.api._to_mod(self._rec())["collection"], "")
 
     def test_added_uses_added_at(self):
         """入库时间必须用 added_at，不能用文件 mtime。"""
@@ -75,9 +110,33 @@ class TestToModContract(unittest.TestCase):
         """缩略图必须是 data URI 或空串 —— 不能是裸文件路径。
 
         裸 file:// 路径在页面跨盘符时会被 WebView2 拦截，表现为全部裂图。
+
+        注意（2026-11-20 起）：没有 mod 自带预览图时，会退回 assets/wiki 的
+        物品图/分类图（旧 UI 的四级兜底搬到新栈）。所以「无 preview」不等于
+        「thumb 为空」—— 只有 wiki 里也没有对应图时才是空串。
         """
-        thumb = self.api._to_mod(self._rec(preview=""))["thumb"]
+        # 一个既无 preview、物品名和分类在 wiki 里都不存在的记录 → 空串
+        rec = self._rec(preview="", category="绝对不存在的分类",
+                        item="绝对不存在的物品")
+        thumb = self.api._to_mod(rec)["thumb"]
         self.assertEqual(thumb, "")
+
+    def test_thumb_falls_back_to_wiki_asset(self):
+        """mod 无预览图时，应该退到 assets/wiki 的占位图（data URI）。"""
+        rec = self._rec(preview="", category="角色", item="Ellis")
+        thumb = self.api._to_mod(rec)["thumb"]
+        self.assertTrue(
+            thumb.startswith("data:image/png;base64,"),
+            "应退回 wiki 物品图，实际是 %r" % (thumb[:60] or thumb))
+
+    def test_thumb_is_never_a_bare_path(self):
+        """任何情况下都不能把裸文件路径当 thumb 传给前端。"""
+        for preview in ("", "E:\\nonexistent\\x.jpg", "/not/exist.png"):
+            thumb = self.api._to_mod(
+                self._rec(preview=preview, category="角色", item="Ellis"))["thumb"]
+            self.assertFalse(
+                thumb.startswith(("E:", "C:", "/", "file:")),
+                "thumb 不能是裸路径：%r" % thumb[:60])
 
     def test_enabled_is_bool(self):
         """前端依赖严格的布尔值（用的是 !!x 和 ===）。"""

@@ -67,7 +67,37 @@
 | `source` | str | `scan`/`adopt`/`migrate`/`import`/`download` | 各写入路径 |
 | `collection` | str | 所属合集 ID（带 `ws_` 前缀） | 下载/导入 |
 | `pinned` | bool | 用户手工改过分类，扫描不再覆盖 | `set_category` |
+| `auto_category` | str | **分类器原本给出的分类**。用户第一次改分类时捕获，之后不再变 | `set_category`（仅首次） |
+| `auto_item` | str | 同上，对应 `item` | `set_category`（仅首次） |
 | `clfv` | int | **分类器版本**，见 §3 —— 改错会让全部模组重算 | 扫描 |
+
+### 2.1.1 `auto_category` / `auto_item` 的语义（2026-11-20 新增）
+
+这两个字段**只在用户第一次手工改分类时写入**，用来回答一个问题：
+「管理器当初认为它是什么？」
+
+```
+用户没改过分类：
+  category='角色'  item='Ellis'   auto_category=(不存在)
+
+用户把「角色/Ellis」改成「杂项」：
+  category='杂项'  item=''        auto_category='角色'  auto_item='Ellis'
+                                   ↑ 首次改分类时捕获的原值
+用户又改成「音效音乐」：
+  category='音效音乐'             auto_category='角色'  ← 不变，仍是首次捕获值
+```
+
+前端（`_to_mod` → `autoCategory`/`autoItem`）据此在详情栏把
+「识别为 角色 / Ellis」**置灰**显示在用户值下面，让用户看得见自己覆盖了什么。
+
+**为什么只在首次捕获**：如果每次都覆盖，`auto_*` 就退化成「上一次的用户选择」，
+失去了「管理器认为它是什么」的含义。
+
+**为什么不用 `clfv` 重算**：重算要重新解析每个 vpk（200 个大文件，几分钟），
+而在改分类那一瞬间旧值就在手里，存下来是零成本。
+
+**重扫时保留**：`_scan_one` 的 `old` 分支会保住 `auto_*`，
+否则一次扫描就让所有模组丢失「识别结果」。
 
 ### 2.2 哪些字段是真·权威
 
@@ -180,11 +210,12 @@ if (old and old.get("mtime") == mtime and old.get("size") == size
 | 操作 | 安全吗 |
 |---|---|
 | 改 `alias`（别名） | ✅ 安全，下次扫描会保留 |
-| 改 `category` / `item` | ⚠️ 同时设 `"pinned": true`，否则下次扫描会被分类器覆盖 |
+| 改 `category` / `item` | ⚠️ 同时设 `"pinned": true`，否则下次扫描会被分类器覆盖；还应设 `auto_category`/`auto_item` 保留识别结果 |
 | 删掉某条记录 | ✅ 安全，等于让扫描重新登记它（但会丢 alias/pinned） |
 | 改 `enabled` | ❌ **没用**。启用状态从 `addonlist.txt` 同步，扫描会覆盖回来 |
 | 改 `clfv` | ⚠️ 见 §3，会触发全量重算 |
 | 改 `mtime` / `size` | ⚠️ 会误导缓存判断，可能让扫描跳过实际已变化的 vpk |
+| 改 `auto_category` | ⚠️ 只影响界面显示的「识别为…」，不影响任何分类逻辑 |
 | 整个文件删掉 | ✅ 会重建，但丢 alias / pinned / added_at |
 
 **改之前先备份**，并且**保证应用没在运行**（否则内存里的副本会覆盖你的修改）。

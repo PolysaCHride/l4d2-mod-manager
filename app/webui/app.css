@@ -503,6 +503,19 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 .spec-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid #1d231f; }
 .spec-row .k { color: #68736a; font-size: 9.5px; }
 .spec-row .v { max-width: 190px; color: #aeb8ab; font-family: "Cascadia Mono", monospace; font-size: 9.5px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 分类行：用户在上的值 + 管理器识别结果置灰在下 */
+.spec-row .v:has(.spec-auto) { text-align: right; white-space: normal; }
+.spec-auto {
+  display: block; margin-top: 3px;
+  color: #4e564f; font-size: 8.5px;
+  cursor: help;
+}
+.spec-auto::before {
+  content: ""; display: inline-block;
+  width: 4px; height: 4px; margin-right: 4px;
+  border-radius: 50%; background: #4e564f;
+  vertical-align: middle;
+}
 
 .group-panel { padding: 10px; border: 1px solid #252c27; border-radius: 5px; background: #0f1210; }
 .group-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; color: #9aa49a; font-size: 9.5px; }

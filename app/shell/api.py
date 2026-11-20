@@ -99,6 +99,61 @@ def _thumb_url(preview_path, max_bytes=400 * 1024):
         return ""
 
 
+_WIKI_CACHE = {}
+
+
+def _safe_asset_name(name):
+    """把物品/分类名转成 assets/wiki 下的安全文件名。
+
+    与 app/ui/util._safe_name 保持一致的规则：只保留字母数字和少量安全字符，
+    其余替换成下划线。这样 'AK-47' 能命中 'AK-47.png'。
+    """
+    out = []
+    for ch in str(name or ""):
+        if ch.isalnum() or ch in "-_ .":
+            out.append(ch)
+        elif ch in "\\/:*?\"<>|":
+            out.append("_")
+        else:
+            out.append("_")
+    return "".join(out).strip() or "_"
+
+
+def _wiki_image_path(item, category):
+    """按 物品 → 分类 顺序找 assets/wiki 下的占位图。
+
+    与 app/ui/util.wiki_image_path 同样的查找顺序。
+    这是旧 UI 的预览图兜底资产（70 张），新 UI 之前完全没用上。
+    """
+    wiki_dir = app_paths.asset_path("wiki")
+    for name in (item, category):
+        if not name:
+            continue
+        p = os.path.join(wiki_dir, _safe_asset_name(name) + ".png")
+        if os.path.isfile(p):
+            return p
+    return ""
+
+
+def _wiki_thumb(item, category):
+    """wiki 占位图的 data URI（跨盘 file:// 会被 WebView2 拦截，所以也要转 base64）。"""
+    p = _wiki_image_path(item, category)
+    if not p:
+        return ""
+    key = os.path.basename(p)
+    cached = _WIKI_CACHE.get(key)
+    if cached is not None:
+        return cached
+    try:
+        with open(p, "rb") as f:
+            raw = f.read()
+        uri = "data:image/png;base64," + __import__("base64").b64encode(raw).decode("ascii")
+        _WIKI_CACHE[key] = uri
+        return uri
+    except Exception:
+        return ""
+
+
 def _fmt_size(n):
     """字节 → 人类可读。与 app/ui/util.fmt_size 输出保持一致。"""
     try:
@@ -206,17 +261,27 @@ class Api(object):
     def _to_mod(self, rec):
         """后端记录 → 前端 Mod 模型（见 bridge.js 的字段约定）。"""
         title = rec.get("title") or rec.get("file", "")
+        category = rec.get("category", "") or "未分类"
+        item = rec.get("item", "") or ""
+        # 预览图三级兜底（与旧 UI util.load_thumb 一致）：
+        #   1. mod 自带的 preview（后端转成 data URI）
+        #   2. assets/wiki 下的物品图（如 Ellis.png / AK-47.png）
+        #   3. assets/wiki 下的分类图（如 角色.png）
+        # 都没有才留空，前端画渐变占位。
+        thumb = _thumb_url(rec.get("preview"))
+        if not thumb:
+            thumb = _wiki_thumb(item, category)
         return {
             "file": rec.get("file", ""),
             "title": title,
             "alias": rec.get("alias", "") or "",
-            "category": rec.get("category", "") or "未分类",
-            "item": rec.get("item", "") or "",
+            "category": category,
+            "item": item,
             "size": int(rec.get("size") or 0),
             "sizeText": _fmt_size(rec.get("size")),
             "enabled": bool(rec.get("enabled")),
             "workshop_id": str(rec.get("workshop_id") or ""),
-            "thumb": _thumb_url(rec.get("preview")),
+            "thumb": thumb,
             # 入库时间用 added_at（真正的登记时间）；mtime 是文件修改时间，
             # 用户移动/重下文件就会变。added_at 缺失时退回 mtime。
             "added": int(rec.get("added_at") or rec.get("mtime") or 0),
@@ -224,6 +289,13 @@ class Api(object):
             "pinned": bool(rec.get("pinned")),
             # 排序/分组辅助
             "mutex": (rec.get("category") in CONFLICT_CATEGORIES),
+            # 分类器原本给出的分类。用户手工改过分类后（pinned），
+            # category/item 变成用户值，auto_* 保留「管理器认为它是什么」。
+            # 没用过用户分类时为 None —— 前端据此决定要不要置灰展示。
+            "autoCategory": rec.get("auto_category"),
+            "autoItem": rec.get("auto_item"),
+            # 所属合集 ID（"ws_<数字>"）。只有地图多部件会用，没归属时为空。
+            "collection": rec.get("collection", "") or "",
         }
 
     def _all_mods(self):
@@ -389,7 +461,11 @@ class Api(object):
     # ---------------------------------------------------------------- 长任务
 
     def start_scan(self):
-        """扫描 addons 顶层，进度通过 job.progress 推送。"""
+        """扫描 addons 顶层，进度通过 job.progress 推送。
+
+        只读：重建已有记录 + 从 addonlist.txt 同步启用状态。
+        **不移动任何文件、不处理子目录、不碰 workshop/**（那是 start_adopt）。
+        """
         try:
             self._ensure()
             if self._library is None:
@@ -404,6 +480,40 @@ class Api(object):
                 job.done(stats if isinstance(stats, dict) else {"count": len(mods)})
 
             job_id = self._runner.start("scan", run)
+            return _ok(job_id=job_id)
+        except Exception as exc:
+            return _err(exc)
+
+    def start_adopt(self):
+        """全量采纳：把 addons 下所有 vpk 纳入管理（core 的 adopt_all）。
+
+        和 start_scan 的关键区别 —— 这个**会移动文件**：
+          · 顶层未登记的 vpk       → 补记进库，addonlist 记 "1"
+          · 非 workshop 的子目录    → 整组移到顶层，记 "0"（禁用）
+          · workshop/ 子目录        → 走迁移逻辑，保留启用状态
+        所以前端必须先弹确认框，且游戏运行中禁止调用（调用方负责，这里再兜一层）。
+        返回 stats: {adopted, moved, migrated, deduped, conflicts, errors, ...}
+        """
+        try:
+            self._ensure()
+            if self._library is None:
+                return _err("未配置游戏目录")
+
+            # 会移动文件，游戏占用 addons 时绝不能动
+            try:
+                from app.core import game as game_core
+                if game_core.is_l4d2_running():
+                    return _err("游戏运行中，无法整理（会移动 vpk 文件）")
+            except Exception:
+                return _err("无法确认游戏是否运行，为安全起见已取消整理")
+
+            def run(job):
+                stats = tasks.adopt_all(job, self._library)
+                mods = self._all_mods()
+                self._emit("mods.changed", {"mods": mods})
+                job.done(stats if isinstance(stats, dict) else {})
+
+            job_id = self._runner.start("adopt", run)
             return _ok(job_id=job_id)
         except Exception as exc:
             return _err(exc)

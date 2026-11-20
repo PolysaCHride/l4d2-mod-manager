@@ -279,6 +279,31 @@
       return { ok: true, job_id: job.job_id };
     },
 
+    // 全量采纳：会移动文件（子目录 → 顶层、workshop → 迁移）
+    start_adopt: async () => {
+      const res = await call('start_adopt');
+      if (res) return res;
+      const job = { job_id: 'mock-adopt' };
+      if (window.__dsh) {
+        let i = 0;
+        const timer = setInterval(() => {
+          i += 1;
+          window.__dsh.emit('job.progress', {
+            job_id: job.job_id, phase: 'adopt', label: '整理中 ' + i + '/5',
+            done: i, total: 5, percent: Math.round(i / 5 * 100),
+          });
+          if (i >= 5) {
+            clearInterval(timer);
+            window.__dsh.emit('job.done', {
+              job_id: job.job_id,
+              result: { adopted: 0, moved: 0, migrated: 0, errors: [] },
+            });
+          }
+        }, 120);
+      }
+      return { ok: true, job_id: job.job_id };
+    },
+
     // 长任务
     analyze_archives: async (paths) => {
       const res = await call('analyze_archives', paths || []);

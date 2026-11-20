@@ -155,6 +155,11 @@ class Library(object):
         if old:  # 保留用户手工设置
             rec["alias"] = old.get("alias", "")
             rec["enabled"] = old.get("enabled", False)
+            # 用户改过分类：记录的分类器结果要跨重扫保住，否则重扫后
+            # 前端就分不清「哪个是管理器识别的、哪个是用户设的」。
+            if "auto_category" in old:
+                rec["auto_category"] = old["auto_category"]
+                rec["auto_item"] = old.get("auto_item", "")
             if old.get("pinned"):
                 rec.update({"pinned": True, "category": old["category"], "item": old["item"]})
         return rec, True
@@ -385,6 +390,13 @@ class Library(object):
         rec = self.store.get_mod(file_name)
         if rec is None:
             raise LibraryError("未知 mod: " + file_name)
+        # 用户第一次手工改分类时，把分类器原本给出的结果留一份到 auto_*。
+        # 之后 category/item 归用户所有，auto_* 不再被覆盖 —— 它是「管理器认为它是什么」。
+        # 前端据此把识别结果置灰展示，让用户看得见自己覆盖掉了什么。
+        # 只在第一次捕获：重复修改分类不应把 auto_* 改成上一次的用户值。
+        if "auto_category" not in rec:
+            rec["auto_category"] = rec.get("category", "")
+            rec["auto_item"] = rec.get("item", "")
         rec["category"] = category
         rec["item"] = item or ""
         if pinned:
@@ -647,7 +659,9 @@ class Library(object):
         ws_items = [it["file"] for it in self.workshop_items()]
         if ws_items:
             if progress:
-                progress("迁移 workshop 订阅项…", 0)
+                # progress 签名统一为 (text, done, total)：这里总数未知，给 0。
+                # 原来少传一个参数，任何按 (text, i, n) 实现的回调都会在这里 TypeError。
+                progress("迁移 workshop 订阅项…", 0, 0)
             moved, errors, deduped = self.migrate_from_workshop(ws_items)
             stats["migrated"] = len(moved)
             stats["deduped"] = len(deduped)

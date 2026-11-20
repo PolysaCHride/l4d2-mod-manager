@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-"""QThread 工作线程：扫描 / 导入 / 下载 / 在线搜索 / 迁移 / 预览图。"""
 """旧 UI 的后台任务（QThread 版）。
 
 ★ 对照关系：本文件是 app/shell/tasks.py 的行为基准。
@@ -7,16 +6,21 @@
 验证重写是否正确，唯一办法是对比着看。
 
 已移植到 app/shell/tasks.py：
-  ScanWorker            → tasks.scan
+  ScanWorker            → tasks.scan          （api.start_scan，只读）
   ImportAnalyzeWorker   → tasks.analyze_archives
   ImportCommitWorker    → tasks.commit_import
-  DownloadWorker        → tasks.download   （进度加权算法逐行等价）
+  DownloadWorker        → tasks.download      （进度加权算法逐行等价）
   DetailsWorker         → tasks.fetch_details
   UpdateCheckWorker     → api.check_update
-  ArchiveInstallWorker  → ⚠️ 未移植（新包已内置 7zip，场景少见）
+  （adopt_all）         → tasks.adopt_all     （api.start_adopt，会移动文件）
+
+已删除（确认无用，2026-11-20）：
+  SearchWorker          → 从未被实例化；工坊在线搜索已确认不做（见 ALIGNMENT_AUDIT A-2）
 
 未移植（新 UI 无入口，见 docs/LEGACY_UI.md）：
-  SearchWorker、PreviewWorker、ParentCollectionWorker、MigrateWorker
+  PreviewWorker、ParentCollectionWorker、MigrateWorker
+  ImportWorker          → 新栈拆成「分析 → 勾选 → 提交」三步，是有意改进
+  ArchiverInstallWorker → 新包已内置 7zip，该场景不存在
 """
 from PySide6.QtCore import QThread, Signal
 
@@ -268,24 +272,6 @@ class DownloadWorker(QThread):
                                "已导入 %d 个 · 跳过 %d 个 · 失败 %d 个"
                                % (len(recs), len(self.skipped), len(self.failures)))
             self.done.emit(recs)
-        except Exception as e:  # noqa: BLE001
-            self.error.emit("%s: %s" % (type(e).__name__, e))
-
-
-class SearchWorker(QThread):
-    done = Signal(list, str)
-    error = Signal(str)
-
-    def __init__(self, query, page=1, sort="text", parent=None):
-        super().__init__(parent)
-        self.query = query
-        self.page = page
-        self.sort = sort
-
-    def run(self):
-        try:
-            items, total = steam_api.search_workshop(self.query, page=self.page, sort=self.sort)
-            self.done.emit(items, total)
         except Exception as e:  # noqa: BLE001
             self.error.emit("%s: %s" % (type(e).__name__, e))
 

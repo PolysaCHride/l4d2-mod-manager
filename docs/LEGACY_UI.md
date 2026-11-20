@@ -124,34 +124,30 @@ from app.ui.main_window import mod_count_text, sort_item_entries
 | **暂缓** | 明确要做，但不在本期；core 能力保留 | **阻塞**（需求还活着） |
 | **转正** | 已确认 core 里有、只差前端入口，给出接入方案 | **阻塞**（工作量已知） |
 
-### 2.1 工坊在线搜索 → **暂缓**
+### 2.1 工坊在线搜索 → **不做（已删代码）**
 
-- core 能力：`steam_api.search_workshop(query, page, num, sort)` 完好
-- 新 UI 现状：无入口
-- 为什么暂缓：搜索需要一个「结果列表 + 分页 + 排序」的完整视图，
-  不是加个输入框就完事。当前下载流程（粘链接 → 解析 → 勾选）
-  已覆盖主要场景，搜索是增强不是补缺。
-- 若要接：新增 `api.search_workshop(query, page)` + 下载视图里加一个 tab
+- 旧实现：`app/ui/workers.py:275` `SearchWorker`
+- ⚠️ **更正（2026-11-20 复核）**：`SearchWorker` 在旧 UI 里**从未被实例化** ——
+  旧 UI 的搜索一直是**本地过滤**（`main_window.py:1192 _filtered_mods`），
+  按 title/alias/category/item/file/tags 匹配，根本不联网。
+  所以这个 Worker 是纯死代码。
+- 裁定：**确认丢弃工坊在线搜索**。`SearchWorker` 已从 `app/ui/workers.py` 删除。
+- core 的 `steam_api.search_workshop()` **保留**：core 冻结期不动，
+  且 `ParentCollectionWorker` 的反查逻辑理论上会用它。
+- **阻塞删除**：否
 
-### 2.2 预览图批量下载 → **转正**
+### 2.2 预览图批量下载 → **转正（但要先知道它不是移植）**
 
 - 旧实现：`app/ui/workers.py:298` `PreviewWorker`
-- core 能力：`steam_api` 能取 `preview_url`，`library.preview_for()` 能查本地图
-- 新 UI 现状：无预览图的模组显示占位渐变。
-  **真实数据里 200 条有 6 条无 `preview`**（见 `docs/DATA_SCHEMA.md` §8），
-  占比 3%，不是普遍问题
-- 结论：**值得做但不紧急**。这是一个纯补数据的后台任务，
-  不需要用户交互，形态最接近现成的 `start_scan`。
-- 接入方案（照 `start_scan` 抄）：
-  ```python
-  def start_preview_fetch(self):
-      def run(job):
-          result = tasks.fetch_previews(job, self._library, self._store)
-          self._emit("mods.changed", {"mods": self._all_mods()})
-          job.done(result)          # 必须发 done，否则状态栏永久卡住
-      return _ok(job_id=self._runner.start("preview", run))
-  ```
-- **阻塞删除**：是（需求活着，且方案已明确）
+- ⚠️ **更正（2026-11-20 复核）**：`PreviewWorker` 在旧 UI 里**从未被实例化** ——
+  它是死代码，旧 UI 根本没有「下载预览图」的入口。
+  所以这一项**不是移植，而是首次实现**，需要自己设计：
+  下载的图存哪（`data/previews/`？）、文件名规则、怎么回写 `preview` 字段。
+- core 能力：`steam_api.fetch_preview_bytes(url)` 只能拿字节，不管落盘。
+- **当前先做的是兜底而不是下载**：`assets/wiki/` 有 70 张现成占位图，
+  已接进新栈（E-3），`hasThumb` 从 194 → **200**，缺图的 6 个模组都有图了。
+- 真正「从工坊下载真图」仍待实现。
+- **阻塞删除**：否（已有兜底；下载属增强）
 
 ### 2.3 反查物品所属合集 → **暂缓**
 
@@ -258,12 +254,12 @@ from app.ui.main_window import mod_count_text, sort_item_entries
 **明确的、可执行的标准**（按 §二·五 的结论更新）：
 
 ```markdown
-- [x] 2.1 工坊搜索      → 暂缓（不做进本期，需求活着）
-- [x] 2.2 预览图下载    → 转正（方案已给，未实现）
-- [x] 2.3 合集反查      → 不做（代码作为领域知识保留）
-- [x] 2.4 订阅迁移      → 转正（方案已给，未实现）
-- [x] 2.5 便携 7zip     → 不做（发行包强制内嵌 7-Zip）
-- [x] 2.6 全量采纳      → 转正（**语义不符已确认，最该先做**）
+- [x] 2.1 工坊搜索      → **不做**（确认丢弃；SearchWorker 已删，旧 UI 搜索本是本地过滤）
+- [ ] 2.2 预览图下载    → **转正**（是首次实现不是移植；E-3 wiki 兜底已做，真下载待做）
+- [x] 2.3 合集反查      → **不做**（随合集 UI 搁置；代码作为领域知识保留）
+- [ ] 2.4 订阅迁移      → **转正**（已随 adopt_all 自动生效，无需单独入口）
+- [x] 2.5 便携 7zip     → **不做**（发行包强制内嵌 7-Zip）
+- [ ] 2.6 全量采纳      → **已完成**（新增 start_adopt，「整理」与「刷新」已分离）
 - [ ] tests/test_main_window_helpers.py 已改写为不依赖 app/ui/
 ```
 

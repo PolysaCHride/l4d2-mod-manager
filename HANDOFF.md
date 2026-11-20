@@ -427,6 +427,12 @@ for _ in range(30):
 本轮改完每个都跑过真实写盘（`addonlist.txt` 的 `"1"`/`"0"`、
 `library.json` 的 `alias`/`category`/`pinned`），并做了回滚。
 
+**第三轮又修了一处（最隐蔽的）**：「刷新」和「整理」两个按钮
+**调的是同一个 `runScan()`**，都走 `rescan` —— 按钮文案不同，行为完全一样。
+而「整理」承诺的是 `adopt_all`（会把子目录 / workshop 里的 vpk 移到顶层）。
+现在 `#tidyBtn` 和首屏「开始整理」都走 `start_adopt`，会移动文件所以带确认框；
+`#refreshBtn` 保持只读的 `rescan`。
+
 ### 6.12 ⚠️ `game.unknown` 必须被前端消费
 
 `api.bootstrap()` 在 `is_l4d2_running()` 抛异常时返回 `game: {running: false, unknown: true}`。
@@ -452,6 +458,39 @@ function writeBlockedOf(running, unknown) {
 
 **注意**：`writeBlockedOf` 是纯函数并已导出到 Node 契约测试
 （`tests/adapt_contract.js` 里有三条断言钉住它），改判定逻辑会立刻测试失败。
+
+### 6.13 ⚠️ `adopt_all` 的 progress 第三参是「名字」，不是「总数」
+
+本轮接 `start_adopt` 时踩到的，**会直接崩**：
+
+```python
+# app/core/library.py 里 progress 的实际调用
+progress("迁移 workshop 订阅项…", 0, 0)                          # 664 行
+progress("移动子目录 mod…", i + 1, os.path.basename(parts[0]))   # 699 行
+progress("登记顶层 mod…", i + 1, name)                           # 731 行
+                                  ↑ 第三参是当前项的名字（字符串）
+```
+
+而 `Job.progress(label, done, total)` 要做 `int(done * 100 / total)` ——
+把名字当 `total` 传就是：
+
+```
+TypeError: unsupported operand type(s) for /: 'int' and 'str'
+```
+
+**两种签名都不能直接适配**：664 行少传一个参数，699/731 行第三参是字符串。
+`tasks.adopt_all` 的解法是自己先数一遍工作量当分母、忽略第三参：
+
+```python
+def progress(text, done=0, current=""):
+    state["done"] = max(state["done"], int(done or 0))
+    job.progress(text, min(state["done"], total_work), total_work, phase="adopt")
+```
+
+同时把 `library.py:664` 补成 `progress(..., 0, 0)`，消掉「少传参数」这一类。
+
+**新增长任务时**：先确认 core 那个函数到底按什么签名调 `progress`，
+不要假设是 `(text, i, n)`。
 
 ---
 
@@ -533,6 +572,27 @@ function writeBlockedOf(running, unknown) {
 | 17 | `app.js` 里的 `DEMO_MODS`（29 行演示数据）与 mock 重复 | ⬜ 未动，可随 P2 一起清 |
 | 18 | `chapters` 是无人读写的遗留字段（197/200 条带它） | ⬜ 已记录进 `DATA_SCHEMA.md` §2.3 |
 
+### 8.4 对齐审查（2026-11-20 第三轮）的落地情况
+
+完整审查见 `docs/ALIGNMENT_AUDIT.md`。用户裁定后已落地 8 项：
+
+| 项 | 结果 |
+|---|---|
+| A-2 工坊搜索 | ✅ 确认丢弃，`SearchWorker` 死代码已删 |
+| B-1/D 全量采纳 | ✅ 新增 `start_adopt`；「整理」不再等于「刷新」 |
+| B-2 订阅迁移 | ✅ 随 `adopt_all` 自动生效，无需单独入口 |
+| C 分类置灰 | ✅ core 加 `auto_category`/`auto_item`；详情栏置灰展示「识别为…」 |
+| E-2 快捷键 | ✅ 收敛为 F5 / Ctrl+K（+Ctrl+F）/ Esc；卡片 Space 启停已移除 |
+| E-3 预览图兜底 | ✅ 接上 `assets/wiki` 70 张图；`hasThumb` 194 → 200 |
+
+**仍待做**：
+
+| 项 | 说明 |
+|---|---|
+| A-1 合集 UI | 数据层已修（`collection` 已透出），UI 按用户要求**暂时搁置**。定位已确认：合集 = 纯展示分组，不参与互斥 |
+| B-3 预览图真下载 | 用户裁定推后；注意这是**首次实现**不是移植（`PreviewWorker` 从未被实例化） |
+| B-4 合集反查 | 随合集 UI 一起，暂不移植 |
+
 ---
 
 ## 9. 已知的坑（实现细节）
@@ -594,8 +654,9 @@ function writeBlockedOf(running, unknown) {
 ## 11. 文档索引
 
 **必读**：
-- `docs/DATA_SCHEMA.md` —— `data/` 数据格式、`clfv` 机制、哪些字段能手改（**本期新增**）
-- `docs/LEGACY_UI.md` —— 旧 UI 六项未移植功能的**逐条结论**（本期更新，见 §二·五）
+- `docs/ALIGNMENT_AUDIT.md` —— 旧后端/旧 UI ↔ 新前端的 12 项对齐审查 + 裁定结果
+- `docs/DATA_SCHEMA.md` —— `data/` 数据格式、`clfv` 机制、`auto_category`、哪些字段能手改
+- `docs/LEGACY_UI.md` —— 旧 UI 六项未移植功能的**逐条结论**（§二·五）
 - `docs/redesign/proto/RESULTS.md` —— 三条路线的实测报告，解释为什么是现在这个架构
 - `docs/redesign/final/README.md` —— 24 条已确认的设计决定，可当验收清单
 - `docs/redesign/final/DESIGN_PRINCIPLES.md` —— 四条硬规则

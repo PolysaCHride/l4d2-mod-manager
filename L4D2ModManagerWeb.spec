@@ -14,6 +14,13 @@ datas = [
     (os.path.join(ROOT, "assets", "icon.ico"), "."),
 ]
 
+# wiki 占位图（70 张）：预览图兜底的第 2/3 级。
+# api._wiki_thumb 会按「物品 → 分类」找 assets/wiki/<name>.png，
+# 不打进包的话打包版对没有预览图的模组只会显示渐变占位。
+WIKI_DIR = os.path.join(ROOT, "assets", "wiki")
+if os.path.isdir(WIKI_DIR):
+    datas.append((WIKI_DIR, os.path.join("assets", "wiki")))
+
 # 7-Zip 必须打进包：干净机器上没有它，压缩包导入会直接失败。
 # 查找顺序见 app/core/archiver.py（bundled → remembered → installed → PATH）。
 #

@@ -46,16 +46,18 @@ const BACKEND_FIELDS = [
   'file', 'title', 'alias', 'category', 'item',
   'size', 'sizeText', 'enabled', 'workshop_id', 'thumb',
   'added', 'addedText', 'pinned', 'mutex',
+  'autoCategory', 'autoItem', 'collection',
 ];
 
 // adapt() 的输出字段集。加字段必须显式改这里。
 const FRONTEND_FIELDS = [
   'id', 'name', 'alias', 'cat', 'item', 'size', 'img',
   'enabled', 'added', 'addedDate', 'file', 'ws', 'mutex',
+  'pinned', 'autoCat', 'autoItem', 'coll',
 ];
 
 // 后端有、但 adapt 有意不接的字段。
-const DROPPED_BY_ADAPT = ['sizeText', 'addedText', 'pinned'];
+const DROPPED_BY_ADAPT = ['sizeText', 'addedText'];
 
 function baseRecord(over) {
   return Object.assign({
@@ -73,6 +75,9 @@ function baseRecord(over) {
     addedText: '2 天前',
     pinned: false,
     mutex: true,
+    autoCategory: null,
+    autoItem: null,
+    collection: '',
   }, over || {});
 }
 
@@ -90,6 +95,11 @@ check('后端每个字段都被 adapt 显式处理（接收或明确丢弃）', 
     // 字段改名映射：后端名 → 前端名
     'file', 'title', 'alias', 'category', 'item',
     'size', 'enabled', 'workshop_id', 'thumb', 'added', 'mutex',
+    // 2026-11-20 新增的映射
+    'pinned',        // → pinned（原样）
+    'autoCategory',  // → autoCat
+    'autoItem',      // → autoItem
+    'collection',    // → coll
   ]));
   const unhandled = BACKEND_FIELDS.filter((f) => !handled.has(f));
   eq(unhandled, [], '这些后端字段既没被 adapt 接收、也没登记为丢弃');
@@ -168,6 +178,38 @@ check('workshop_id → ws 原样保留为字符串', () => {
 check('mutex 严格布尔', () => {
   eq(app.adapt(baseRecord({ mutex: true })).mutex, true, 'true');
   eq(app.adapt(baseRecord({ mutex: undefined })).mutex, false, 'undefined');
+});
+
+check('pinned：后端传了就必须接住（原来被静默丢弃）', () => {
+  eq(app.adapt(baseRecord({ pinned: true })).pinned, true, 'pinned=true');
+  eq(app.adapt(baseRecord({ pinned: false })).pinned, false, 'pinned=false');
+  eq(app.adapt(baseRecord({ pinned: undefined })).pinned, false, '缺失按 false');
+});
+
+check('autoCat/autoItem：null 表示从没改过分类', () => {
+  // 三态必须能区分：
+  //   null      → 用户从没改过，前端不展示「识别结果」
+  //   ''        → 改过，但识别结果是空分类
+  //   '角色'    → 改过，识别结果是角色
+  const never = app.adapt(baseRecord({ autoCategory: null, autoItem: null }));
+  eq(never.autoCat, null, '从没改过时 autoCat 必须是 null（不是空串）');
+  eq(never.autoItem, null, '从没改过时 autoItem 必须是 null');
+
+  const empty = app.adapt(baseRecord({ autoCategory: '', autoItem: '' }));
+  eq(empty.autoCat, '', '改过但识别为空时是空串');
+
+  const real = app.adapt(baseRecord({ category: '杂项',
+    autoCategory: '角色', autoItem: 'Ellis' }));
+  eq(real.cat, '杂项', '当前分类是用户值');
+  eq(real.autoCat, '角色', 'autoCat 是识别值');
+  eq(real.autoItem, 'Ellis', 'autoItem 是识别值');
+});
+
+check('collection → coll：合集归属必须透出（A-1 根因）', () => {
+  eq(app.adapt(baseRecord({ collection: 'ws_189971863' })).coll,
+     'ws_189971863', '合集 ID');
+  eq(app.adapt(baseRecord({ collection: '' })).coll, '', '无归属是空串');
+  eq(app.adapt(baseRecord({ collection: undefined })).coll, '', 'undefined→空串');
 });
 
 check('空对象不抛异常且给出安全默认值', () => {
