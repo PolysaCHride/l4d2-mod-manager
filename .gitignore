@@ -37,3 +37,18 @@ third_party/7zip/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# 审计后补充（2026-11-20）
+.tmp/
+_acl_repair/
+_release_*/
+*.qa/
+.chrome-qa/
+*-preview.png
+debug.log
+README.md备份
+docs/design_test.*
+docs/redesign/final/_e*.png
+docs/redesign/final/demo-*.png
+docs/redesign/final/__pycache__/
+docs/redesign/final/.out/

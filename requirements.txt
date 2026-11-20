@@ -1,2 +1,17 @@
+# ---- 旧 UI（PySide6 原生）----
 PySide6>=6.5,<7
 requests>=2.31,<3
+
+# ---- 新 UI（pywebview + 系统 WebView2）----
+# 只跑旧入口时可以不装这几个；跑 main_web.py 必须装。
+pywebview==6.2.1
+pythonnet==3.2.1
+pywin32-ctypes>=0.2.2
+
+# ---- 打包 ----
+pyinstaller==6.22.3
+
+# ---- 缩略图压缩（必需）----
+# 不装的话 _thumb_url 会把 >400KB 的 JPEG 截断成坏图（裂图），
+# 且 bootstrap 一次要传 54MB base64。见 api._thumb_url。
+pillow>=10
