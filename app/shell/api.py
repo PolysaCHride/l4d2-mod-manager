@@ -409,6 +409,24 @@ class Api(object):
         except Exception as exc:
             return _err(exc)
 
+    def restore_auto_category(self, file_name):
+        """把分类恢复成分类器原本的判定（撤销用户的手工分类）。
+
+        只对「用户改过分类」的模组有效（auto_category 存在）。
+        恢复后清掉 pinned，之后重扫会重新接管。
+        """
+        try:
+            self._ensure()
+            if self._library is None:
+                return _err("未配置游戏目录")
+            if self._find(file_name) is None:
+                return _err("找不到模组：%s" % file_name)
+            self._library.restore_auto_category(file_name)
+            rec = self._find(file_name) or {}
+            return _ok(category=rec.get("category", ""), item=rec.get("item", ""))
+        except Exception as exc:
+            return _err(exc)
+
     def delete_mod(self, file_name):
         try:
             self._ensure()

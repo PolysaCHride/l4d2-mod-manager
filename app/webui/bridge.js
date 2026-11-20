@@ -243,6 +243,14 @@
       return { ok: true };
     },
 
+    restore_auto_category: async (file) => {
+      const res = await call('restore_auto_category', file);
+      if (res) return res;
+      const m = MOCK.mods.find((x) => x.file === file);
+      if (m) { m.category = m.autoCategory || '未分类'; m.item = ''; }
+      return { ok: true };
+    },
+
     delete_mod: async (file) => {
       const res = await call('delete_mod', file);
       if (res) return res;

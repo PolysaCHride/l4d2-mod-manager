@@ -96,6 +96,8 @@ class TestToModContract(unittest.TestCase):
         # 没有归属时是空串，不是 None —— 前端用 === '' 判断
         self.assertEqual(self.api._to_mod(self._rec())["collection"], "")
 
+
+
     def test_added_uses_added_at(self):
         """入库时间必须用 added_at，不能用文件 mtime。"""
         rec = self._rec(added_at=1000, mtime=999999)
@@ -200,6 +202,61 @@ class TestBootstrapShape(unittest.TestCase):
         self.assertEqual(r["stats"]["total"], len(mods))
         self.assertEqual(r["stats"]["enabled"],
                          sum(1 for m in mods if m["enabled"]))
+
+
+class TestAutoCategoryRoundTrip(unittest.TestCase):
+    """auto_category 的完整生命周期：捕获 → 透出 → 恢复。
+
+    这是 C 功能的核心契约。用户改错分类后必须能退回自动判定，
+    否则「允许用户改分类」就变成了单向不可逆操作。
+    """
+
+    def setUp(self):
+        import tempfile
+        from app.core.store import Store
+        from app.core.library import Library
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.store = Store(self._tmp.name)
+        rec = new_mod_record("x.vpk")
+        rec.update({"category": "角色", "item": "Ellis"})
+        self.store.upsert_mod(rec)
+        self.store.save_library()
+
+        # 只借用 set_category / restore_auto_category，不需要真实游戏目录
+        self.lib = Library.__new__(Library)
+        self.lib.store = self.store
+        self.lib.paths = None
+
+    def test_override_captures_auto_once(self):
+        """首次改分类捕获原值；再次修改不覆盖。"""
+        self.lib.set_category("x.vpk", "杂项", "")
+        rec = self.store.get_mod("x.vpk")
+        self.assertEqual(rec["auto_category"], "角色")
+        self.assertEqual(rec["auto_item"], "Ellis")
+
+        self.lib.set_category("x.vpk", "音效音乐", "")
+        rec = self.store.get_mod("x.vpk")
+        self.assertEqual(rec["auto_category"], "角色",
+                         "第二次改分类不应把 auto_* 变成上一次的用户值")
+
+    def test_restore_brings_back_auto(self):
+        """恢复后：category 回到识别值，auto_* 与 pinned 都清掉。"""
+        self.lib.set_category("x.vpk", "杂项", "")
+        self.lib.restore_auto_category("x.vpk")
+        rec = self.store.get_mod("x.vpk")
+        self.assertEqual(rec["category"], "角色")
+        self.assertEqual(rec["item"], "Ellis")
+        self.assertNotIn("auto_category", rec)
+        self.assertNotIn("pinned", rec,
+                         "恢复后必须清掉 pinned，否则重扫仍不会接管")
+
+    def test_restore_refuses_when_never_overridden(self):
+        """没改过分类的模组调用恢复应报错，而不是悄悄做点什么。"""
+        from app.core.library import LibraryError
+        with self.assertRaises(LibraryError):
+            self.lib.restore_auto_category("x.vpk")
 
 
 if __name__ == "__main__":

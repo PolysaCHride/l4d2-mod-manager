@@ -516,6 +516,15 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
   border-radius: 50%; background: #4e564f;
   vertical-align: middle;
 }
+/* 「恢复自动」：小号文字按钮，跟在置灰的识别值后面 */
+.spec-restore {
+  display: inline-block; margin-top: 3px; margin-left: 6px;
+  padding: 0 4px; border: 1px solid #2b332c; border-radius: 3px;
+  background: transparent; color: #7d8a7e;
+  font-family: inherit; font-size: 8.5px; line-height: 1.6;
+  cursor: pointer;
+}
+.spec-restore:hover { border-color: var(--accent); color: var(--accent); }
 
 .group-panel { padding: 10px; border: 1px solid #252c27; border-radius: 5px; background: #0f1210; }
 .group-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; color: #9aa49a; font-size: 9.5px; }
@@ -617,7 +626,9 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 .dlg-head .dlg-close { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 3px; color: #66716a; }
 .dlg-head .dlg-close:hover { background: #1b211c; color: var(--text-primary); }
 .dlg-body { padding: 9px 15px 4px; }
-.dlg-text { margin: 0; color: var(--text-secondary); font-size: 10.5px; line-height: 1.75; }
+/* pre-line：让内容里的 \n 真的换行。
+   整理确认框那种多行说明全靠它，否则四行会挤成一行。 */
+.dlg-text { margin: 0; color: var(--text-secondary); font-size: 10.5px; line-height: 1.75; white-space: pre-line; }
 .dlg-rows { margin-top: 10px; border-top: 1px solid var(--border-subtle); }
 .dlg-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid #1c221e; }
 .dlg-row:last-child { border-bottom: 0; }

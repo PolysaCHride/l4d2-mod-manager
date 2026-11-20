@@ -123,6 +123,7 @@
       RAILS,
       countConflictsOf,
       writeBlockedOf,
+      isSameGroup,
     };
     return;
   }
@@ -343,7 +344,28 @@
   }
 
   const selected = () => MODS.find((m) => m.id === state.selectedId) || null;
-  const sameGroup = (m) => MODS.filter((x) => x.cat === m.cat && x.item === m.item && x.id !== m.id);
+  /**
+   * 同组判定的纯函数版（便于 Node 契约测试）。
+   * 返回 true 表示 a 和 b 属于同一互斥组。
+   */
+  function isSameGroup(a, b) {
+    if (!a || !b) return false;
+    if (a.id === b.id) return false;
+    if (a.cat !== b.cat || a.item !== b.item) return false;
+    // 两边都有合集归属且不同 → 是两个不同合集里的同名模组，不算同组
+    if (a.coll && b.coll && a.coll !== b.coll) return false;
+    return true;
+  }
+
+  /**
+   * 同组判定：cat + item 相同才算同组。
+   *
+   * 但要多算一步 —— 如果两边的 collection 都非空且不相等，
+   * 说明它们是**两个不同合集里恰好同名**的模组，不是同一组。
+   * 不排除的话，两张不相干的地图会莫名其妙互相顶掉。
+   * （实测当前库无此碰撞，但这是结构性风险，成本又极低。）
+   */
+  const sameGroup = (m) => MODS.filter((x) => isSameGroup(x, m));
 
   // ---------------------------------------------------------------- render: rail
   function renderRail() {
@@ -636,7 +658,9 @@
     const catCell = m.autoCat === null
       ? esc(userCat)
       : `${esc(userCat)}<span class="spec-auto" title="模组管理器识别到的分类">`
-        + `识别为 ${esc(autoCatText)}</span>`;
+        + `识别为 ${esc(autoCatText)}</span>`
+        + `<button class="spec-restore" type="button" id="insRestoreCat"`
+        + ` title="把分类恢复成管理器识别的结果">恢复自动</button>`;
 
     const specRows = [
       ['文件', m.file, ''],
@@ -697,6 +721,32 @@
     $('#insClose').addEventListener('click', () => { state.selectedId = null; renderGrid(); renderInspector(); });
 
     $('#insSwitch').addEventListener('click', () => toggleMod(m.id));
+
+    // 「恢复自动」：撤销用户的手工分类，回到分类器的判定。
+    // 只在 autoCat !== null（用户改过分类）时才会渲染出这个按钮。
+    const restoreBtn = $('#insRestoreCat');
+    if (restoreBtn) {
+      restoreBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const ok = await confirmDialog({
+          title: '恢复自动分类',
+          tone: 'question',
+          text: `把《${shown}》的分类恢复成管理器识别的「${autoCatText}」？\n\n`
+              + '恢复后这个模组不再"已固定"，以后重扫会重新接管它的分类。',
+          confirm: '恢复',
+        });
+        if (!ok) return;
+        const res = await window.bridge.restore_auto_category(m.file);
+        if (!res || !res.ok) {
+          await infoDialog({ title: '无法恢复', tone: 'danger',
+                             text: (res && res.error) || '恢复失败' });
+          return;
+        }
+        await reloadMods();
+        renderFilters(); renderGrid(); renderInspector();
+        toast('已恢复自动分类');
+      });
+    }
 
     $('#insAlias').addEventListener('click', async () => {
       const value = prompt('别名（留空恢复原名）', m.alias || '');

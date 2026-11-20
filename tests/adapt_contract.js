@@ -290,6 +290,51 @@ check('item 为空的不参与冲突判定', () => {
   eq(app.countConflictsOf(list), 0, '空 item 是整体类，不互斥');
 });
 
+console.log('\n同组判定（sameGroup 的 collection 排除规则）');
+
+function mod(over) {
+  return Object.assign({ id: 'a.vpk', cat: '地图', item: 'Yama', coll: '' }, over || {});
+}
+
+check('cat + item 相同 → 同组', () => {
+  ok(app.isSameGroup(mod(), mod({ id: 'b.vpk' })), '应判定为同组');
+});
+
+check('cat 不同 → 不同组', () => {
+  ok(!app.isSameGroup(mod(), mod({ id: 'b.vpk', cat: '角色' })), '分类不同不该同组');
+});
+
+check('item 不同 → 不同组', () => {
+  ok(!app.isSameGroup(mod(), mod({ id: 'b.vpk', item: 'Day Break' })), 'item 不同不该同组');
+});
+
+check('自己和自己不算同组', () => {
+  ok(!app.isSameGroup(mod(), mod()), '同一个 id 不该算同组（会把自己列进「同组」面板）');
+});
+
+check('两个不同合集里的同名地图 → 不算同组', () => {
+  // 这是结构性风险点：两个作者的地图恰好都叫 Yama，但分属不同合集。
+  // 不排除的话，用户在「同组」面板里会看到两个不相干的地图，
+  // 启用一个会顶掉另一个。
+  const a = mod({ id: 'a.vpk', coll: 'ws_111' });
+  const b = mod({ id: 'b.vpk', coll: 'ws_222' });
+  ok(!app.isSameGroup(a, b), '不同合集 + 同名 → 不该算同组');
+});
+
+check('同一个合集里的多部件 → 算同组', () => {
+  const a = mod({ id: 'a.vpk', coll: 'ws_111' });
+  const b = mod({ id: 'b.vpk', coll: 'ws_111' });
+  ok(app.isSameGroup(a, b), '同合集应当同组');
+});
+
+check('一边有合集、一边没有 → 仍算同组（保持旧行为）', () => {
+  // 只有一边有归属时无法判断是否真属于不同合集，保守起见按同组处理，
+  // 避免漏掉真正的互斥冲突（误报互斥比漏报安全）。
+  const a = mod({ id: 'a.vpk', coll: 'ws_111' });
+  const b = mod({ id: 'b.vpk', coll: '' });
+  ok(app.isSameGroup(a, b), '一边无归属时按同组处理');
+});
+
 console.log('');
 if (failures) {
   console.error('失败 ' + failures + ' 项');

@@ -386,6 +386,28 @@ class Library(object):
         rec["alias"] = alias.strip()
         self.store.save_library()
 
+    def restore_auto_category(self, file_name):
+        """把被用户手工改过的分类恢复成分类器原本的判定。
+
+        用户改错分类是很常见的（尤其看到「识别为 X」才发现自己选错了）。
+        没有这个出口的话，一旦 set_category 就把 auto_* 冻结、category 变成用户值，
+        用户只能手工再选一次分类 —— 而那等于又写了一份用户值，回不到「自动」。
+
+        前提：auto_category 必须存在（即用户确实改过分类）。
+        恢复后清掉 pinned，让后续重扫重新接管这个模组的分类。
+        """
+        rec = self.store.get_mod(file_name)
+        if rec is None:
+            raise LibraryError("未知 mod: " + file_name)
+        if "auto_category" not in rec:
+            raise LibraryError("该 mod 的分类从未被手工修改过: " + file_name)
+        rec["category"] = rec.get("auto_category", "") or "未分类"
+        rec["item"] = rec.get("auto_item", "") or ""
+        rec.pop("auto_category", None)
+        rec.pop("auto_item", None)
+        rec.pop("pinned", None)
+        self.store.save_library()
+
     def set_category(self, file_name, category, item, pinned=True):
         rec = self.store.get_mod(file_name)
         if rec is None:
