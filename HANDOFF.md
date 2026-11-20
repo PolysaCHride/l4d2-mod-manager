@@ -1,6 +1,8 @@
 # L4D2 Mod Manager · 工程交接文档
 
 > 写于 2026-11-20，前端重构第一期落地之后。
+> **2026-11-20 第二轮更新**：补写发布流程、Node 侧契约测试、数据 format 文档，
+> 并修掉 5 处新发现的假动作。改动集中在 §3.3 / §3.5 / §6.10-6.12 / §8 / §11。
 > 面向：接管这个项目、但完全没有上下文的工程师团队。
 >
 > 本文档的目标不是「介绍项目」，而是**让你在最短时间内知道：什么东西能碰、什么东西碰了会炸、以及为什么当初这么做**。
@@ -66,15 +68,19 @@ B-2 的代价是依赖系统 WebView2（Win10/11 自带）。
 
 ### 2.4 本期没做
 
-| 项 | 说明 |
-|---|---|
-| 工坊搜索 | 旧 UI 有 `SearchWorker`，新 UI 无 |
-| 合集反查 | 旧 UI 的 `ParentCollectionWorker`（三路兜底），未移植 |
-| 工坊订阅迁移 | 旧 UI 的 `MigrateWorker`，未移植 |
-| 便携 7zip 安装 | 旧 UI 的 `ArchiverInstallWorker`，未移植 |
-| 弹窗族美化 | 现在是 demo 期的简易版，未按 `states.html` 重做 |
-| 拖拽导入 | 页面接受 drop，但拿不到真实路径（WebView2 限制） |
-| 键盘快捷键 | 只有 Ctrl+K，Enter/Space 未做 |
+每一项的**结论与接入方案**见 `docs/LEGACY_UI.md` §二·五 —— 那里不再是「待定」。
+
+| 项 | 说明 | 结论 |
+|---|---|---|
+| 工坊搜索 | 旧 UI 有 `SearchWorker`，新 UI 无 | 暂缓（需完整结果视图，非补缺） |
+| 合集反查 | 旧 UI 的 `ParentCollectionWorker`（三路兜底），未移植 | 不做（主路径已覆盖；代码作知识资产保留） |
+| 工坊订阅迁移 | 旧 UI 的 `MigrateWorker`，未移植 | **转正**，方案已给 |
+| 便携 7zip 安装 | 旧 UI 的 `ArchiverInstallWorker`，未移植 | **不做**（发行包强制内嵌，场景不存在） |
+| 预览图批量下载 | 旧 UI 的 `PreviewWorker`，未移植 | **转正**，方案已给（仅 3% 模组缺图） |
+| **全量采纳 `adopt_all`** | 前端「整理」实际调 `rescan`，**语义不符** | **转正，最该先做** |
+| 弹窗族美化 | 现在是 demo 期的简易版，未按 `states.html` 重做 | 未动 |
+| 拖拽导入 | 页面接受 drop，但拿不到真实路径（WebView2 限制） | 未动 |
+| 键盘快捷键 | 只有 Ctrl+K，Enter/Space 未做 | 未动 |
 
 ---
 
@@ -108,8 +114,11 @@ python -m venv .venv
 ### 3.3 验证
 
 ```powershell
-# 业务逻辑单测（3 个文件，用隔离临时目录，不碰真实游戏目录）
-.\.venv\Scripts\python -m unittest discover -s tests -v
+# 业务逻辑单测 + 前后端契约测试（36 个，用隔离临时目录，不碰真实游戏目录）
+.\.venv\Scripts\python -X utf8 -m unittest discover -s tests -v
+
+# 前端契约测试单独跑（23 项，Node 直跑，不需要 Python）
+node tests\adapt_contract.js
 
 # 桥接层自测（不需要窗口，用假 window 验证事件推送）
 .\.venv\Scripts\python -X utf8 -m app.shell._selftest
@@ -143,14 +152,52 @@ node --check app/webui/bridge.js
 ### 3.5 打包
 
 ```powershell
-.\.venv\Scripts\python -m PyInstaller L4D2ModManagerWeb.spec --noconfirm
+# 新栈（主线）—— 自动带 7-Zip、自动校验产物
+.\build_release.ps1 -Target web
+
+# 旧栈
+.\build_release.ps1 -Target legacy
+
+# 两套一起
+.\build_release.ps1 -Target both
 ```
 
-产出 `dist/L4D2 Mod Manager (WebUI)/`，35 MB。
+产出：
+```
+release/L4D2 Mod Manager-v<版本>-win64-web/        目录版
+release/L4D2 Mod Manager-v<版本>-win64-web.zip    压缩包
+release/L4D2 Mod Manager-v<版本>-win64/           旧栈（无 -web 后缀）
+```
+
+版本号**自动从 `packaging/version_info.txt` 读**，不用手工传。
 
 ⚠️ **两个 spec 的输出目录名不同**（`(WebUI)` 后缀），这是刻意改的 —— 原来两个都叫 `L4D2 Mod Manager`，先后构建会静默互相覆盖。
 
-⚠️ **`build_release.ps1` 只打旧 spec。** 新 spec 没有任何自动化发版路径，这是待办。
+✅ **`build_release.ps1` 现在两套栈都支持**（本期修复）。原来只打旧 spec，新栈没有任何自动化发版路径。
+
+#### 7-Zip 的双重保险
+
+`third_party/7zip/` 被 `.gitignore` 忽略（不进仓库），干净 clone 后**目录不存在**。
+原来两个 spec 都是 `if os.path.isdir(...)` 静默跳过 —— 打出来的包缺 `7z.exe`，
+装到用户机器上「导入压缩包」全部失败，而且构建过程一句警告都没有。
+
+现在：
+
+| 位置 | 行为 |
+|---|---|
+| `build_release.ps1` → `Assert-7Zip` | 构建前先跑 `packaging/fetch_7zip.ps1` 补齐，缺文件直接 throw |
+| `L4D2ModManagerWeb.spec` | 缺 `7z.exe`/`7z.dll`/`License.txt` 任一 → `SystemExit` 中止 |
+| `build_release.ps1` → `Test-Package` | 打包后复查 `_internal/7zip/`，同时拒绝 `data/` 和文档文件进包 |
+
+**已实测**：把 `third_party/7zip` 移走再构建，会报
+`打包中止：缺少 7-Zip 组件 7z.exe, 7z.dll, License.txt` 并退出，
+**不会**产出一个残缺的包。
+
+> 单独跑 PyInstaller（不经过 build_release.ps1）时，spec 里那道检查仍然生效：
+> ```powershell
+> .\.venv\Scripts\python -m PyInstaller L4D2ModManagerWeb.spec --noconfirm
+> ```
+> 但**先自己确保** `third_party/7zip/` 有货，否则直接中止。
 
 ---
 
@@ -247,10 +294,14 @@ library.json
 `app/webui/app.js` 从演示页 `demo.js` 演化而来。演示期有大量「只弹 toast、不写后端」的假动作。本期修了主要的，但**判断某个操作是否真的生效，必须去 `bridge.js` 数调用**，不能看 UI 表现。
 
 已经修好的：启停、别名、删除、打开文件夹、扫描、设置页显示。
+**第二轮又修了 5 处**（启动游戏 / 打开工坊页 / 打开 addons 目录 / 排序 / 修改分类），
+逐条对照见 §6.11。
 
 **仍需注意**：任何 `toast('已...')` 后面有没有 `await window.bridge.xxx()`。
 
 **验证方式**：改完之后，直接去看 `data/library.json` 或 `addonlist.txt` 有没有变。
+本轮修完的每一处都做了真实写盘验证 + 回滚（`addonlist.txt` 的 `"1"`/`"0"`、
+`library.json` 的 `alias`/`category`/`pinned`）。
 
 ### 6.2 ⚠️ `job.done` 谁发？—— 本期已统一
 
@@ -349,7 +400,58 @@ for _ in range(30):
 
 这是最危险的一类问题：静默降级。
 
-**当前没有契约测试。** 建议补（见 8.2）。
+**现在有两层保护**（本期补齐）：
+
+| 层 | 文件 | 锁什么 |
+|---|---|---|
+| Python | `tests/test_webui_contract.py` | `_to_mod` 的**输出字段集** |
+| Node | `tests/adapt_contract.js` | `adapt` 的**输入字段名** + 单位换算 + 枚举一致性 |
+
+跑 `python -m unittest discover -s tests` 会同时跑两边
+（`tests/test_adapt_contract_js.py` 是桥；没装 node 时跳过而不是失败）。
+
+### 6.11 ⚠️ 假动作清单（本期又找出 5 处）
+
+`app.js` 里有一类「看起来有功能、实际只弹提示」的代码。本期审计
+31 个 API 方法 × 前端调用点，又找出 5 处，全部已接线：
+
+| 位置 | 原来的行为 | 现在 |
+|---|---|---|
+| `#launchBtn` | `infoDialog('演示环境不会真的启动 L4D2')` | `bridge.launch_game()` → `steam://rungameid/550` |
+| `#insWorkshop` | `infoDialog('演示环境不会真的打开浏览器')` | `bridge.open_workshop(id)` → `steam://url/CommunityFilePage/<id>` |
+| `#statusPath` | `toast('已在资源管理器中打开 addons 目录')` | `bridge.open_path(addonsDir)` → 真的打开 |
+| `#sortBtn` | 只给「最近添加」一个选项，选了等于没选 | 三档循环（最近添加 / 名称 / 大小），都真的生效 |
+| `修改分类` | `infoDialog('实际实现会打开分类选择对话框')` | `bridge.set_category()`，落盘且置 `pinned` |
+
+**验证方法**：判断真假只能去 `bridge.js` 数调用，不能看 UI 表现。
+本轮改完每个都跑过真实写盘（`addonlist.txt` 的 `"1"`/`"0"`、
+`library.json` 的 `alias`/`category`/`pinned`），并做了回滚。
+
+### 6.12 ⚠️ `game.unknown` 必须被前端消费
+
+`api.bootstrap()` 在 `is_l4d2_running()` 抛异常时返回 `game: {running: false, unknown: true}`。
+**`unknown=true` 不等于「没在运行」** —— 它表示「不知道」。
+
+原来的前端只读 `res.game.running`，`unknown` 完全没用上 ——
+等于检测失败时会**放行写入**，而游戏运行中写 `addonlist.txt` 会失败或损坏。
+
+现在：
+
+```js
+state.gameUnknown = !!(res.game && res.game.unknown);
+// 所有写入前都走这一个闸门
+function writeBlockedOf(running, unknown) {
+  if (running) return '游戏运行时无法修改模组配置，请先退出游戏。';
+  if (unknown) return '无法确认游戏是否正在运行，为避免损坏 addonlist.txt，已暂停写入。…';
+  return '';
+}
+```
+
+覆盖点：`toggleMod` / `commitImport` / `startDownload` 三处。
+顶栏状态灯的 `unknown` 态用警告色（`--warning`）区别于正常的灰点。
+
+**注意**：`writeBlockedOf` 是纯函数并已导出到 Node 契约测试
+（`tests/adapt_contract.js` 里有三条断言钉住它），改判定逻辑会立刻测试失败。
 
 ---
 
@@ -407,25 +509,29 @@ for _ in range(30):
 | 3 | ~~合集子项类型错误~~ | ✅ 已修 |
 | 4 | ~~`commit_import` 不清理临时目录~~ | ✅ 已修 |
 | 5 | ~~Web 包缺 7-Zip~~ | ✅ 已修 |
-| 6 | `build_release.ps1` 不打新 spec | ⬜ **待办** |
+| 6 | ~~`build_release.ps1` 不打新 spec~~ | ✅ **本期修复**，见 §3.5 |
+| 7 | ~~`launch_game` / `open_workshop` / `statusPath` / `sortBtn` / 分类修改 是假动作~~ | ✅ **本期修复**，见 §6.11 |
 
 ### 8.2 P1（决定改得对不对）
 
-| # | 事项 | 说明 |
+| # | 事项 | 状态 |
 |---|---|---|
-| 7 | **契约测试** | `_to_mod` ↔ `adapt` 无任何保护。建议：Python 侧断言字段集合，Node 侧跑 `adapt()` 对比。约 120 行 |
-| 8 | **枚举一致性测试** | 互斥类别 4 份副本，建议一条断言钉死 |
-| 9 | `data/library.json` schema 文档 | 字段含义、`clfv` 版本机制、能否手改，目前零文档 |
-| 10 | 6 个未移植功能的清单 | 见 2.4，建议写进 `docs/LEGACY_UI.md` |
-| 11 | `is_l4d2_running` 失败时应报错而非 `False` | 现在会放行写入 |
+| 8 | **契约测试（Python 侧）** | ✅ 已有 11 条（`tests/test_webui_contract.py`） |
+| 9 | ~~**契约测试（Node 侧）**~~ | ✅ **本期补齐**：`tests/adapt_contract.js` 23 项 + `tests/test_adapt_contract_js.py` 挂进 unittest |
+| 10 | ~~枚举一致性测试~~ | ✅ 已有 + 本期扩到 `CATEGORY_OPTIONS` / `RAIL_DEFS` 覆盖检查 |
+| 11 | ~~`data/library.json` schema 文档~~ | ✅ **本期补齐**：`docs/DATA_SCHEMA.md` |
+| 12 | ~~6 个未移植功能的清单~~ | ✅ **本期补齐**：`docs/LEGACY_UI.md` §二·五，逐条给结论 |
+| 13 | ~~`is_l4d2_running` 失败时前端不消费 `game.unknown`~~ | ✅ **本期修复**，见 §6.12 |
 
 ### 8.3 P2（整洁）
 
-| # | 事项 |
-|---|---|
-| 12 | `_fmt_size` 有三份实现（api.py / tasks.py / ui/util.py） |
-| 13 | `spec` 的 `hiddenimports` 18 项里 15 项多余 |
-| 14 | `app/webui/assets/mods/*.webp` 6 张图只用于 mock，生产包里是死重量 |
+| # | 事项 | 状态 |
+|---|---|---|
+| 14 | `_fmt_size` 有三份实现（api.py / tasks.py / ui/util.py） | ⬜ 未动（core 冻结，只能收中间层两份） |
+| 15 | `spec` 的 `hiddenimports` 18 项里 15 项多余 | ⬜ 未动 |
+| 16 | `app/webui/assets/mods/*.webp` 6 张图只用于 mock | ⬜ 未动 |
+| 17 | `app.js` 里的 `DEMO_MODS`（29 行演示数据）与 mock 重复 | ⬜ 未动，可随 P2 一起清 |
+| 18 | `chapters` 是无人读写的遗留字段（197/200 条带它） | ⬜ 已记录进 `DATA_SCHEMA.md` §2.3 |
 
 ---
 
@@ -469,20 +575,27 @@ for _ in range(30):
 
 - [ ] 读本文档第 0、5、6 节
 - [ ] `pip install -r requirements.txt`，跑起 `main_web.py`
-- [ ] 跑 `python -m unittest discover -s tests -v`，确认全绿
+- [ ] 跑 `python -m unittest discover -s tests -v`，确认 **36 个全绿**
+- [ ] 跑 `node tests/adapt_contract.js`，确认 23 项全过
 - [ ] 跑 `python -X utf8 docs/redesign/proto/e2e_check.py`，确认 `mode: live`
 - [ ] 打开一次 DevTools（`L4D2_DEBUG=1`），看有没有 console 错误
 - [ ] 双击一个模组，**去 `addonlist.txt` 确认真的写了 `0`/`1`**
-- [ ] 打一次包，确认 `dist/L4D2 Mod Manager (WebUI)/_internal/7zip/7z.exe` 存在
+- [ ] 点顶栏的「启动」，确认真的拉起了 Steam（这是本轮修好的 5 处之一）
+- [ ] 跑一次 `.\build_release.ps1 -Target web`，确认
+      `release/L4D2 Mod Manager-v*-win64-web/_internal/7zip/7z.exe` 存在
+- [ ] 把 `third_party/7zip` 临时移走再构建，确认**构建失败**而不是产出残缺包
+- [ ] 读 `docs/DATA_SCHEMA.md`（改分类规则前必读 `clfv` 那节）
 - [ ] 读 `docs/redesign/proto/RESULTS.md`（为什么选 pywebview）
 - [ ] 读 `docs/redesign/final/README.md`（24 条已确认的设计决定）
-- [ ] 决定 `app/ui/` 的去留（建议：先写 `docs/LEGACY_UI.md`，别急着删）
+- [ ] 决定 `app/ui/` 的去留（先读 `docs/LEGACY_UI.md` §二·五 的六项结论）
 
 ---
 
 ## 11. 文档索引
 
 **必读**：
+- `docs/DATA_SCHEMA.md` —— `data/` 数据格式、`clfv` 机制、哪些字段能手改（**本期新增**）
+- `docs/LEGACY_UI.md` —— 旧 UI 六项未移植功能的**逐条结论**（本期更新，见 §二·五）
 - `docs/redesign/proto/RESULTS.md` —— 三条路线的实测报告，解释为什么是现在这个架构
 - `docs/redesign/final/README.md` —— 24 条已确认的设计决定，可当验收清单
 - `docs/redesign/final/DESIGN_PRINCIPLES.md` —— 四条硬规则
@@ -508,6 +621,21 @@ for _ in range(30):
 
 **业务逻辑是干净的，设计文档是好懂的，脏的是中间那层 —— 从演示页长出来、边调试边打补丁的前端，以及从来没被写下来的「怎么跑、怎么测、怎么发」。**
 
-本期已经清掉了最脏的部分（写操作接真实后端、危险脚本加警告、垃圾文件清理、291MB 缓存删除、基线提交）。剩下的是系统性工作：契约测试、功能补齐、发布流程。
+已清理的：写操作接真实后端、危险脚本加警告、垃圾文件清理、291MB 缓存删除、基线提交。
+本期（2026-11-20 第二轮）又推进了三件系统性工作：
 
-建议的推进顺序：**先把契约测试补上**（防止改坏），**再补功能**（6 个未移植项），**最后收尾旧 UI**。
+| 项 | 结果 |
+|---|---|
+| **发布流程** | `build_release.ps1` 支持新栈；7-Zip 三重校验；缺组件构建**直接失败**而不是静默产出残缺包 |
+| **契约保护** | Node 侧 23 项 `adapt()` 契约 + 挂进 unittest；前后端字段契约现在两层都有断言 |
+| **假动作** | 又找出并修复 5 处；`game.unknown` 真正接到写入闸门上 |
+
+还剩的（按建议顺序）：
+
+1. **`adopt_all` 接线**（`LEGACY_UI.md` §2.6）—— 前端「整理」按钮承诺的是
+   `adopt_all`，实际调的是 `rescan`。这是**语义不符**，不是缺功能。
+2. 预览图批量下载 / 订阅迁移（方案已给，见 §2.2 / §2.4）
+3. P2 整洁项（`_fmt_size` 三份、`hiddenimports` 15 项多余）
+
+**判断改得对不对，现在有三条独立命令**，不需要打开界面：
+`unittest`（36 项）、`node tests/adapt_contract.js`（23 项）、`e2e_check.py`（真实数据）。

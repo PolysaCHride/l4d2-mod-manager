@@ -16,9 +16,22 @@ datas = [
 
 # 7-Zip 必须打进包：干净机器上没有它，压缩包导入会直接失败。
 # 查找顺序见 app/core/archiver.py（bundled → remembered → installed → PATH）。
+#
+# 这里**故意不做 `if os.path.isdir(...)` 的静默跳过**：
+# third_party/7zip/ 被 .gitignore 忽略（不进仓库），干净 clone 后目录根本不存在。
+# 早期写法遇到这种情况会安静地打出一个缺 7z.exe 的包，装上才发现导入全挂。
+# 现在缺文件就让构建直接失败；build_release.ps1 会提前跑 packaging/fetch_7zip.ps1 补齐。
 ZIP_TOOLS = os.path.join(ROOT, "third_party", "7zip")
-if os.path.isdir(ZIP_TOOLS):
-    datas.append((ZIP_TOOLS, "7zip"))
+ZIP_REQUIRED = ("7z.exe", "7z.dll", "License.txt")
+_missing_zip = [n for n in ZIP_REQUIRED
+                if not os.path.isfile(os.path.join(ZIP_TOOLS, n))]
+if _missing_zip:
+    raise SystemExit(
+        "打包中止：缺少 7-Zip 组件 " + ", ".join(_missing_zip) + "\n"
+        "  期望目录: " + ZIP_TOOLS + "\n"
+        "  修复: powershell -ExecutionPolicy Bypass "
+        "-File packaging\\fetch_7zip.ps1")
+datas.append((ZIP_TOOLS, "7zip"))
 
 a = Analysis(
     [os.path.join(ROOT, "main_web.py")],

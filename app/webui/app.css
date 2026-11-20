@@ -109,6 +109,8 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
   transition: background .2s ease, box-shadow .2s ease;
 }
 .game-status.running .dot { background: var(--danger); box-shadow: 0 0 0 3px rgba(255, 104, 84, .14); }
+/* 检测失败：不能当成「没运行」，用警告色区分于正常灰点 */
+.game-status.unknown .dot { background: var(--warning); box-shadow: 0 0 0 3px rgba(226, 168, 62, .16); }
 
 .launch-button {
   flex: none; height: 30px; margin: 0 10px 0 8px; padding: 0 12px;
@@ -613,6 +615,24 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 .dlg-row .row-tag.bad { color: var(--danger); }
 .dlg-check { display: flex; align-items: center; gap: 7px; margin-top: 11px; color: var(--text-secondary); font-size: 9.5px; cursor: pointer; }
 .dlg-check input { width: 12px; height: 12px; accent-color: var(--accent); }
+/* 单选列表（分类选择等）：滚动区 + 与 dlg-row 一致的视觉节奏 */
+.dlg-choices {
+  margin-top: 10px; max-height: 300px; overflow-y: auto;
+  border-top: 1px solid var(--border-subtle);
+}
+.dlg-choice {
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 2px; border-bottom: 1px solid #1c221e;
+  color: #c8d1c2; font-size: 10px; cursor: pointer;
+}
+.dlg-choice:last-child { border-bottom: 0; }
+.dlg-choice:hover { background: #141913; }
+.dlg-choice input { width: 12px; height: 12px; accent-color: var(--accent); flex: none; }
+.dlg-choice .choice-label { flex: 1; min-width: 0; }
+.dlg-choice .choice-hint {
+  flex: none; color: var(--text-tertiary);
+  font-family: "Cascadia Mono", monospace; font-size: 8.5px;
+}
 .dlg-progress { height: 5px; margin-top: 12px; border-radius: 3px; background: #0a0c08; overflow: hidden; }
 .dlg-progress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .25s ease; }
 .dlg-progress-meta { margin-top: 6px; color: var(--text-tertiary); font-family: "Cascadia Mono", monospace; font-size: 8.5px; }

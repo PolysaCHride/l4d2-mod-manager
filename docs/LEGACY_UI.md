@@ -113,6 +113,132 @@ from app.ui.main_window import mod_count_text, sort_item_entries
 
 ---
 
+## 二·五、六项功能的结论（2026-11-20 定）
+
+每一项给出**处置**而不是「待定」。处置有四档，各自含义写死：
+
+| 档位 | 含义 | 对删除 `app/ui/` 的影响 |
+|---|---|---|
+| **已移植** | 新 UI 有等价能力并已接线 | 不阻塞 |
+| **不做** | 产品决定放弃，且理由成立 | 不阻塞 |
+| **暂缓** | 明确要做，但不在本期；core 能力保留 | **阻塞**（需求还活着） |
+| **转正** | 已确认 core 里有、只差前端入口，给出接入方案 | **阻塞**（工作量已知） |
+
+### 2.1 工坊在线搜索 → **暂缓**
+
+- core 能力：`steam_api.search_workshop(query, page, num, sort)` 完好
+- 新 UI 现状：无入口
+- 为什么暂缓：搜索需要一个「结果列表 + 分页 + 排序」的完整视图，
+  不是加个输入框就完事。当前下载流程（粘链接 → 解析 → 勾选）
+  已覆盖主要场景，搜索是增强不是补缺。
+- 若要接：新增 `api.search_workshop(query, page)` + 下载视图里加一个 tab
+
+### 2.2 预览图批量下载 → **转正**
+
+- 旧实现：`app/ui/workers.py:298` `PreviewWorker`
+- core 能力：`steam_api` 能取 `preview_url`，`library.preview_for()` 能查本地图
+- 新 UI 现状：无预览图的模组显示占位渐变。
+  **真实数据里 200 条有 6 条无 `preview`**（见 `docs/DATA_SCHEMA.md` §8），
+  占比 3%，不是普遍问题
+- 结论：**值得做但不紧急**。这是一个纯补数据的后台任务，
+  不需要用户交互，形态最接近现成的 `start_scan`。
+- 接入方案（照 `start_scan` 抄）：
+  ```python
+  def start_preview_fetch(self):
+      def run(job):
+          result = tasks.fetch_previews(job, self._library, self._store)
+          self._emit("mods.changed", {"mods": self._all_mods()})
+          job.done(result)          # 必须发 done，否则状态栏永久卡住
+      return _ok(job_id=self._runner.start("preview", run))
+  ```
+- **阻塞删除**：是（需求活着，且方案已明确）
+
+### 2.3 反查物品所属合集 → **暂缓**
+
+- 旧实现：`app/ui/workers.py:311-386` `ParentCollectionWorker`，三路兜底
+- 新 UI 现状：无入口
+- 为什么暂缓：三路兜底的目的，是补上「用户只给了单个物品、
+  但它属于某个合集」这个场景。而新 UI 的下载流程**直接支持粘贴合集链接**
+  （`fetch_details` 会经 `collection_children` 展开），主路径已覆盖。
+- 但这是**纯领域知识**（Steam 没有官方反查接口），删掉就永久丢失。
+  代码必须留在 `workers.py` 里，并保留那三段注释。
+- **阻塞删除**：否（不做，但代码作为知识资产保留）
+
+### 2.4 工坊订阅迁移 → **转正**
+
+- 旧实现：`app/ui/workers.py:409` `MigrateWorker`
+- core 能力：`library.migrate_from_workshop(...)` **完好**，
+  且 `adopt_all()` 内部也会走迁移逻辑（`library.py:630`）
+- 新 UI 现状：无入口。但**已有 5 条 `source="migrate"` 的真实记录**，
+  说明这个能力被用过
+- 接入方案：设置页加一个「迁移工坊订阅」按钮 → 直接调 `start_scan` 之外的
+  一个 `start_migrate`，内部走 `tasks.migrate`（需新增）→ `library.migrate_from_workshop`
+- **阻塞删除**：是
+
+### 2.5 便携 7-Zip 安装 → **不做**
+
+- 旧实现：`app/ui/workers.py:77` `ArchiverInstallWorker`
+- 新 UI 现状：找不到解压器时报错
+- **为什么不做**：发行的包里已强制内嵌 `_internal/7zip/`，
+  且 `build_release.ps1` + `L4D2ModManagerWeb.spec` 双重校验
+  缺 7z.exe 就让构建失败（见本期 P0 修复）。
+  也就是说「用户机器没有 7-Zip」这个场景在正式发行版里**不存在**。
+  为一个不可能发生的场景维护一套下载安装器不划算。
+- 兜底：`archiver.find_archiver()` 仍会依次尝试
+  bundled → remembered → installed → PATH，
+  用户在设置里手工指定 `archiver_path` 也能用
+- **阻塞删除**：否
+
+### 2.6 全量采纳（adopt_all）→ **转正（本项最重要）**
+
+**先纠正一个语义不符 —— 已实测确认：**
+
+```
+前端「整理」按钮 (#tidyBtn) 和首屏「开始整理」(#onboardStart)
+    → runScan() → bridge.start_scan()
+    → api.start_scan() → tasks.scan() → library.rescan()      ← 实际是 rescan
+```
+
+而 `rescan()` 与 `adopt_all()` **不是一回事**：
+
+| | `rescan()` | `adopt_all()` |
+|---|---|---|
+| 重建已有记录 | ✅ | ✅ |
+| **顶层未登记的 vpk** | ❌ 不管 | ✅ 补记进库 + addonlist 记 `"1"` |
+| **子目录里的 vpk**（非 workshop） | ❌ 不管 | ✅ 整组移到顶层，记 `"0"`（禁用） |
+| **`workshop/` 子目录** | ❌ 不管 | ✅ 走迁移，保留启用状态 |
+
+**按钮文案「整理」承诺的是 `adopt_all` 的行为，实际做的是 `rescan`。**
+用户把 vpk 丢进 `addons/some_subdir/` 后点「整理」，
+会发现这些模组**根本没出现** —— 因为游戏本身也不扫描子目录。
+
+- 结论：**要接 `adopt_all`**，并且把两个操作分开：
+  - 「刷新」→ `start_scan`（rescan，快，只同步状态）
+  - 「整理」→ `start_adopt`（adopt_all，慢，会移动文件，需确认框）
+- 注意：`adopt_all` 会**真的移动文件**（`library.py:693` `shutil.move`），
+  已实测确认其行为：
+  - `workshop/` 子目录 → 全部移出纳管（保留启用状态）
+  - 其他子目录 → 整组移到顶层，**默认禁用**（记 `"0"`，因为游戏本就不扫子目录）
+  - 目标重名时自动加 ` (2)` ` (3)` 后缀，不会覆盖
+  - 移动前会先把整组目标路径都确认一遍，再统一移（避免移一半）
+  所以必须：① 游戏未运行时才允许（`writeBlocked()` 已有闸门）
+  ② 执行前弹确认框说明「子目录里的 vpk 会被移到顶层」
+  ③ 结果里 `moved`/`errors` 要如实展示，不能只报成功数
+- 接入方案：
+  ```python
+  def start_adopt(self):
+      def run(job):
+          stats = library.adopt_all(progress=...)
+          self._emit("mods.changed", {"mods": self._all_mods()})
+          job.done(stats or {})
+      return _ok(job_id=self._runner.start("adopt", run))
+  ```
+- **阻塞删除**：是（**这是六项里最该先做的**）
+
+---
+
+---
+
 ## 三、旧 UI 独有的行为参考
 
 除了功能，`app/ui/` 还记录了这些「怎么做才对」：
@@ -129,17 +255,22 @@ from app.ui.main_window import mod_count_text, sort_item_entries
 
 ## 四、什么条件下可以删
 
-**明确的、可执行的标准**：
+**明确的、可执行的标准**（按 §二·五 的结论更新）：
 
 ```markdown
-- [ ] 2.1 工坊搜索      → 已移植 / 明确不做
-- [ ] 2.2 预览图下载    → 已移植 / 明确不做
-- [ ] 2.3 合集反查      → 已移植 / 明确不做
-- [ ] 2.4 订阅迁移      → 已移植 / 明确不做
-- [ ] 2.5 便携 7zip     → 已移植 / 明确不做
-- [ ] 2.6 全量采纳      → 已移植 / 明确不做（先确认 rescan vs adopt_all）
+- [x] 2.1 工坊搜索      → 暂缓（不做进本期，需求活着）
+- [x] 2.2 预览图下载    → 转正（方案已给，未实现）
+- [x] 2.3 合集反查      → 不做（代码作为领域知识保留）
+- [x] 2.4 订阅迁移      → 转正（方案已给，未实现）
+- [x] 2.5 便携 7zip     → 不做（发行包强制内嵌 7-Zip）
+- [x] 2.6 全量采纳      → 转正（**语义不符已确认，最该先做**）
 - [ ] tests/test_main_window_helpers.py 已改写为不依赖 app/ui/
 ```
+
+> 「结论已给」≠「可以删」。上表中 2.1/2.2/2.4/2.6 仍是**活需求**，
+> 它们的存在依然构成对 `app/ui/` 的依赖理由（作为行为基准）。
+> 只有当 2.2 / 2.4 / 2.6 **真正移植进新 UI**、
+> 2.1 有明确产品结论之后，`app/ui/` 才可以动。
 
 六项全部有结论后，才可以：
 
@@ -151,6 +282,7 @@ git rm -r app/ui/
 **在那之前，删 `app/ui/` 是纯粹的损失。**
 
 ---
+
 
 ## 五、现在就该做的隔离
 
@@ -178,3 +310,17 @@ git rm -r app/ui/
 
 打包的时候 `excludes` 已经排掉了 `PySide6`，所以 `app/ui/` 不会进包。
 但要确保**不要**在 `main_web.py` 的 import 链里意外引入它。
+
+---
+
+## 六、本期（2026-11-20）对本文档的更新
+
+| 变更 | 说明 |
+|---|---|
+| 补 §二·五 | 六项功能逐条给结论，不再「待定」 |
+| 确认 2.6 语义不符 | 实测：`#tidyBtn` / `#onboardStart` 走的是 `rescan`，不是 `adopt_all` |
+| 修正 2.5 的理由 | 不是「没时间做」，而是发行包强制内嵌 7-Zip 后该场景不存在 |
+| 校正删除清单 | 区分「已给结论」与「可以删除」，两者不是一回事 |
+
+> 本期**没有**移植任何一项到新 UI。本文档只把「不确定」变成「确定」，
+> 并给出每一项的接入方案，让后续实现不用重新调研。

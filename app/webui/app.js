@@ -9,15 +9,18 @@
   'use strict';
 
   // 全局错误上报：打包后没有控制台，靠桥接层写文件
-  window.addEventListener('error', (e) => {
-    const msg = 'JS ERROR: ' + e.message + ' @ ' + (e.filename || '?') + ':' + e.lineno;
-    if (window.bridge && window.bridge.log) window.bridge.log(msg);
-    else console.error(msg);
-  });
-  window.addEventListener('unhandledrejection', (e) => {
-    const msg = 'JS REJECT: ' + (e.reason && e.reason.message ? e.reason.message : e.reason);
-    if (window.bridge && window.bridge.log) window.bridge.log(msg);
-  });
+  // （Node 契约测试里没有 window，这条整块跳过）
+  if (typeof window !== 'undefined') {
+    window.addEventListener('error', (e) => {
+      const msg = 'JS ERROR: ' + e.message + ' @ ' + (e.filename || '?') + ':' + e.lineno;
+      if (window.bridge && window.bridge.log) window.bridge.log(msg);
+      else console.error(msg);
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+      const msg = 'JS REJECT: ' + (e.reason && e.reason.message ? e.reason.message : e.reason);
+      if (window.bridge && window.bridge.log) window.bridge.log(msg);
+    });
+  }
 
   // ---------------------------------------------------------------- data
   const DEMO_MODS = [
@@ -97,6 +100,33 @@
   // 只有这些类别下的同 item 模组才互斥，地图/脚本等不受限制。
   const MUTEX_CATEGORIES = new Set(['角色', '特感', '枪械', '近战', '医疗品', '投掷']);
 
+  // 全部可选分类：与 app/core/classify.py 的 CATEGORIES 一致（顺序也一致）。
+  // tests/test_webui_contract.py 有断言钉住这两份列表的集合相等。
+  const CATEGORY_OPTIONS = [
+    '角色', '特感', '枪械', '近战', '医疗品', '投掷',
+    'UI', '音效音乐', '载具', '弹药', '材质特效', '动作',
+    '地图', '杂项', '其他', '未分类',
+  ];
+
+  // ---------------------------------------------------------------- test hook
+  // Node 侧契约测试（tests/adapt_contract.js）要直接调 adapt() 等纯函数，
+  // 而它们都封在这个 IIFE 里。函数声明会提升，但 const 不会 ——
+  // 所以这个钩子必须放在上面几个常量之后、任何 DOM 操作之前，
+  // 且只能引用函数声明（不能引用下面那些 const 箭头函数）。
+  // 浏览器里 document 一定存在 → 走正常路径，运行时行为完全不变。
+  if (typeof document === 'undefined') {
+    module.exports = {
+      adapt,
+      MUTEX_CATEGORIES,
+      CATEGORY_OPTIONS,
+      RAIL_DEFS,
+      RAILS,
+      countConflictsOf,
+      writeBlockedOf,
+    };
+    return;
+  }
+
   // ---------------------------------------------------------------- state
   const state = {
     view: 'library',
@@ -113,6 +143,11 @@
     toastTimer: null,
     settings: {},
     version: '1.2.1',
+    // addons 目录（statusPath 点击时真去打开它）；bootstrap 的 paths.addons 填入
+    addonsDir: '',
+    // 游戏运行状态是否「检测失败」而非「确实没运行」。
+    // true 时禁止所有写入 —— 检测失败不等于没运行，见 HANDOFF §7.2。
+    gameUnknown: false,
   };
 
   const $ = (sel, root = document) => root.querySelector(sel);
@@ -196,6 +231,50 @@
         onClose: () => resolve(true),
       });
       $$('#modal-host [data-btn]').forEach((b) => b.addEventListener('click', () => closeModal(true)));
+    });
+  }
+
+  /**
+   * 单选对话框：从 options 里挑一个，返回选中的值；取消返回 null。
+   * options: [{ value, label, hint }]
+   *
+   * 选择值必须在 closeModal 之前从 DOM 读出来 —— closeModal 会清空 modal-host。
+   * 所以这里不用 onClose 回调拿结果，而是先存进局部变量再统一 resolve。
+   */
+  function selectDialog({ title, text = '', options = [], confirm = '确定', width = 480 }) {
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+      const list = options.map((o, i) => `
+        <label class="dlg-choice">
+          <input type="radio" name="dlgChoice" value="${esc(String(o.value))}"
+                 ${i === 0 ? 'checked' : ''}>
+          <span class="choice-label">${esc(o.label)}</span>
+          ${o.hint ? `<span class="choice-hint">${esc(o.hint)}</span>` : ''}
+        </label>`).join('');
+      const html = `<div class="dlg info" style="max-width:${width}px">
+        <div class="dlg-head"><span class="dot"></span><h4>${esc(title)}</h4>
+          <button class="dlg-close" type="button" data-btn="close" aria-label="关闭">${icon('x')}</button></div>
+        <div class="dlg-body">${text ? `<p class="dlg-text">${esc(text)}</p>` : ''}
+          <div class="dlg-choices">${list}</div></div>
+        <div class="dlg-foot">
+          <button class="btn ghost" type="button" data-btn="0">取消</button>
+          <button class="btn primary" type="button" data-btn="1">${esc(confirm)}</button>
+        </div></div>`;
+      // 遮罩/ESC 关闭时 onClose(false)，解析为「取消」
+      openModal(html, { onClose: () => finish(null) });
+      $$('#modal-host [data-btn]').forEach((b) => {
+        b.addEventListener('click', () => {
+          const picked = $('#modal-host input[name="dlgChoice"]:checked');
+          const value = picked ? picked.value : null;
+          finish(b.dataset.btn === '1' ? value : null);
+          closeModal(false);   // 结果已 resolve，这里只负责关窗
+        });
+      });
     });
   }
 
@@ -407,15 +486,20 @@
     }).join('');
   }
 
-  /** 数一数有几组真冲突（只算互斥类别）。 */
-  function countConflicts() {
+  /** 数一数有几组真冲突（只算互斥类别）。
+   *  纯函数版：接受 mod 列表，便于 Node 侧直接测。 */
+  function countConflictsOf(list) {
     const groups = {};
-    MODS.forEach((m) => {
+    (list || []).forEach((m) => {
       if (!m.enabled || !MUTEX_CATEGORIES.has(m.cat) || !m.item) return;
       const k = m.cat + '/' + m.item;
       groups[k] = (groups[k] || 0) + 1;
     });
     return Object.values(groups).filter((n) => n > 1).length;
+  }
+
+  function countConflicts() {
+    return countConflictsOf(MODS);
   }
 
   // ---------------------------------------------------------------- render: header
@@ -604,10 +688,15 @@
       if (!res || !res.ok) toast((res && res.error) || '无法打开文件夹');
     });
     const ws = $('#insWorkshop');
-    if (ws) ws.addEventListener('click', () => infoDialog({
-      title: '打开工坊页',
-      text: '演示环境不会真的打开浏览器。实际实现会跳转到 Steam 创意工坊页面。',
-    }));
+    if (ws) ws.addEventListener('click', async () => {
+      // 走后端 steam://url/CommunityFilePage/<id>，真的会拉起 Steam 客户端。
+      // 早期这里是 infoDialog('演示环境不会真的打开浏览器') —— 那是演示页遗留的假动作。
+      const res = await window.bridge.open_workshop(m.ws);
+      if (!res || !res.ok) {
+        await infoDialog({ title: '无法打开工坊页', tone: 'danger',
+                           text: (res && res.error) || '打开失败' });
+      }
+    });
 
     $('#insMore').addEventListener('click', (e) => {
       e.stopPropagation();
@@ -644,9 +733,34 @@
     $$('[data-more]').forEach((b) => b.addEventListener('click', async () => {
       $('#insMoreMenu').hidden = true;
       if (b.dataset.more === 'category') {
-        await infoDialog({ title: '修改分类', text: '实际实现会打开分类选择对话框，演示页暂不展开。' });
+        // 走真后端 library.set_category（会把 pinned 置 True，重扫不再覆盖）。
+        // 早期这里只弹「实际实现会打开分类选择对话框」—— 假动作。
+        const picked = await selectDialog({
+          title: '修改分类',
+          text: `为《${shown}》指定分类。手工指定后会标记为「已固定」，重扫不再改它。`,
+          options: CATEGORY_OPTIONS.map((c) => ({
+            value: c, label: c, hint: c === m.cat ? '当前' : '',
+          })),
+          confirm: '保存分类',
+        });
+        if (picked === null) return;
+        const res = await window.bridge.set_category(m.file, picked, m.item || '');
+        if (!res || !res.ok) {
+          await infoDialog({ title: '无法修改分类', tone: 'danger',
+                             text: (res && res.error) || '写入失败' });
+          return;
+        }
+        m.cat = picked;
+        renderFilters(); renderGrid(); renderInspector();
+        toast('分类已改为「' + picked + '」');
       } else {
-        await infoDialog({ title: '归入合集', text: '实际实现会解析合集链接或选择已有合集。' });
+        // 合集归属依赖 library 的 collections 结构，本期无前端入口，
+        // 明确告知而不是假装成功。
+        await infoDialog({
+          title: '归入合集',
+          text: '地图合集归属尚未迁移到新界面。旧界面里由下载流程按 '
+              + '「合集 ID → 多个 VPK」自动建立，不需要手工归入。',
+        });
       }
     }));
 
@@ -722,7 +836,10 @@
         ? new Date(apiMod.added * 1000).toLocaleDateString('sv-SE')
         : '',
       file: apiMod.file || '',
-      ws: apiMod.workshop_id || '',
+      // 后端已 str() 过，但 mock 数据和历史 library.json 里可能是数字。
+      // 数字一旦漏进 ws，`m.ws ? ...` 判定仍成立，但拼到 steam:// 链接里
+      // 会得到 "123.0" 之类的值，且 === 比较全部失效。
+      ws: apiMod.workshop_id == null ? '' : String(apiMod.workshop_id),
       mutex: !!apiMod.mutex,
     };
   }
@@ -738,26 +855,54 @@
     state.settings = res.settings || state.settings;
     state.version = res.version || state.version;
     state.gameRunning = !!(res.game && res.game.running);
-    applyGameStatus();
+    // 后端在 is_l4d2_running() 抛异常时给 unknown=true。
+    // 检测失败 ≠ 没在运行 —— 这时必须按「不能写」处理，否则游戏运行中
+    // 写 addonlist.txt 会失败或损坏（HANDOFF §7.2 / §9.2）。
+    state.gameUnknown = !!(res.game && res.game.unknown);
     if (res.paths && res.paths.addons) {
+      state.addonsDir = res.paths.addons;
       const el = $('#statusPath');
       if (el) el.textContent = res.paths.addons;
     }
+    applyGameStatus();
     if (MODS.length && !MODS.some((m) => m.id === state.selectedId)) {
       state.selectedId = MODS[0].id;
     }
     return true;
   }
 
-  /** 把 state.gameRunning 同步到顶栏指示与启动按钮。 */
+  /** 把 state.gameRunning / state.gameUnknown 同步到顶栏指示与启动按钮。 */
   function applyGameStatus() {
     const dot = $('#gameStatus');
     const btn = $('#launchBtn');
     if (dot) {
+      // 三种状态：运行中 / 未运行 / 检测失败（未知）
       dot.classList.toggle('running', state.gameRunning);
-      dot.title = state.gameRunning ? '游戏运行中' : '游戏未运行';
+      dot.classList.toggle('unknown', !state.gameRunning && state.gameUnknown);
+      dot.title = state.gameRunning
+        ? '游戏运行中'
+        : (state.gameUnknown
+            ? '无法检测游戏是否在运行 —— 已按「运行中」处理，暂停所有写入'
+            : '游戏未运行');
     }
     if (btn) btn.disabled = state.gameRunning;
+  }
+
+  /**
+   * 是否禁止写入的纯函数版：running / unknown 两者都禁止。
+   * 返回一句给用户看的原因，或空串表示可以写。
+   */
+  function writeBlockedOf(running, unknown) {
+    if (running) return '游戏运行时无法修改模组配置，请先退出游戏。';
+    if (unknown) {
+      return '无法确认游戏是否正在运行，为避免损坏 addonlist.txt，已暂停写入。'
+           + '请稍后重试，或手动确认游戏已退出。';
+    }
+    return '';
+  }
+
+  function writeBlocked() {
+    return writeBlockedOf(state.gameRunning, state.gameUnknown);
   }
 
   async function reloadMods() {
@@ -793,9 +938,13 @@
     const m = MODS.find((x) => x.id === id);
     if (!m) return;
     state.selectedId = id;                 // 双击同时选中，Inspector 跟着变
-    if (state.gameRunning) {
+    const blocked = writeBlocked();
+    if (blocked) {
       paintCards(); renderInspector();
-      await infoDialog({ title: '游戏运行中', tone: 'warning', text: '游戏运行时无法修改模组配置，请先退出游戏。' });
+      await infoDialog({
+        title: state.gameUnknown ? '无法确认游戏状态' : '游戏运行中',
+        tone: 'warning', text: blocked,
+      });
       return;
     }
     // ---- 停用 ----
@@ -1048,9 +1197,12 @@
       (c) => c.selected && !c.dup && !c.parseError);
     if (!picked.length) return;
 
-    if (state.gameRunning) {
-      await infoDialog({ title: '游戏运行中', tone: 'warning',
-                         text: '游戏运行时无法写入模组库，请先退出游戏。' });
+    const blockedImport = writeBlocked();
+    if (blockedImport) {
+      await infoDialog({
+        title: state.gameUnknown ? '无法确认游戏状态' : '游戏运行中',
+        tone: 'warning', text: blockedImport,
+      });
       return;
     }
 
@@ -1190,9 +1342,12 @@
   async function startDownload() {
     const picked = dlFlow.items.filter((i) => i.selected && !i.dup);
     if (!picked.length) return;
-    if (state.gameRunning) {
-      await infoDialog({ title: '游戏运行中', tone: 'warning',
-                         text: '请先关闭游戏，再下载导入模组。' });
+    const blockedDl = writeBlocked();
+    if (blockedDl) {
+      await infoDialog({
+        title: state.gameUnknown ? '无法确认游戏状态' : '游戏运行中',
+        tone: 'warning', text: blockedDl,
+      });
       return;
     }
 
@@ -1439,14 +1594,22 @@
   }));
 
   $('#sortBtn').addEventListener('click', async () => {
+    // 三种排序在 visibleMods 的 sorters 里都已实现，这里只是缺一个入口。
+    // 早期版本只弹一句「演示用对话框代替下拉菜单」，选择结果永远是 added —— 假动作。
+    const current = { added: '最近添加', name: '名称', size: '文件大小' };
+    const next = state.sort === 'added' ? 'name'
+      : state.sort === 'name' ? 'size' : 'added';
     const ok = await confirmDialog({
       title: '排序',
       tone: 'question',
-      text: '选择排序方式（演示用对话框代替下拉菜单）。',
-      confirm: '最近添加',
-      cancel: '取消',
+      text: `当前按「${current[state.sort] || state.sort}」排序。切换到「${current[next]}」？`,
+      confirm: '切换到' + current[next],
+      cancel: '保持现状',
     });
-    if (ok) { state.sort = 'added'; renderGrid(); }
+    if (!ok) return;
+    state.sort = next;
+    renderGrid();
+    toast('已按「' + current[next] + '」排序');
   });
 
   $('#refreshBtn').addEventListener('click', () => runScan());
@@ -1458,9 +1621,15 @@
     renderGrid();
   });
 
-  $('#launchBtn').addEventListener('click', () => {
+  $('#launchBtn').addEventListener('click', async () => {
     if (state.gameRunning) { toast('游戏已在运行'); return; }
-    infoDialog({ title: '启动游戏', text: '演示环境不会真的启动 L4D2。实际实现会调用 Steam 启动。' });
+    // 经 steam://rungameid/550 启动，保留用户自己的启动项。
+    // 早期这里是 infoDialog('演示环境不会真的启动 L4D2') —— 假动作。
+    const res = await window.bridge.launch_game();
+    if (!res || !res.ok) {
+      await infoDialog({ title: '无法启动游戏', tone: 'danger',
+                         text: (res && res.error) || '启动失败' });
+    }
   });
 
   $$('[data-caption]').forEach((b) => b.addEventListener('click', async (e) => {
@@ -1497,7 +1666,13 @@
   $('#parseBtn').addEventListener('click', () => parseLink());
   $('#linkInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') parseLink(); });
   $('#downloadStart').addEventListener('click', () => startDownload());
-  $('#statusPath').addEventListener('click', () => toast('已在资源管理器中打开 addons 目录'));
+  $('#statusPath').addEventListener('click', async () => {
+    // 真的在资源管理器里打开 addons 目录（后端 os.startfile）。
+    // 早期这里只 toast('已在资源管理器中打开 addons 目录') —— 什么都没发生。
+    if (!state.addonsDir) { toast('尚未设置游戏目录'); return; }
+    const res = await window.bridge.open_path(state.addonsDir);
+    if (!res || !res.ok) toast((res && res.error) || '无法打开目录');
+  });
 
   // drag & drop on the import zone
   ['dragenter', 'dragover'].forEach((evt) => $('#dropZone').addEventListener(evt, (e) => {
