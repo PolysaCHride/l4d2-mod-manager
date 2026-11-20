@@ -1,0 +1,566 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>03 WORKSHOP / 工坊中枢 · L4D2 Mod Manager</title>
+<link rel="stylesheet" href="assets/base.css">
+<style>
+:root {
+  --night: #08121a;
+  --deep: #0d1b25;
+  --panel: #122430;
+  --panel-2: #172b39;
+  --panel-3: #1b3342;
+  --line: #223845;
+  --line-2: #305164;
+  --text: #dbe9f0;
+  --muted: #89a4b4;
+  --dim: #5f7e90;
+  --cyan: #6bc7f2;
+  --cyan-2: #3e9ac6;
+  --green: #a8d414;
+  --ink: #061016;
+  --danger: #f06a55;
+  --focus: #6bc7f2;
+  --selection: rgba(107, 199, 242, .25);
+}
+body.v3 {
+  background: var(--night);
+  color: var(--text);
+  font-family: "Noto Sans SC", "Microsoft YaHei UI", "Segoe UI", sans-serif;
+}
+.v3 .app {
+  height: 100vh; min-width: 1180px;
+  display: flex; flex-direction: column;
+  background:
+    radial-gradient(900px 420px at 10% -12%, rgba(62,154,198,.12), transparent 68%),
+    linear-gradient(180deg, #0c1922, #08121a 32%);
+}
+.v3 .topbar {
+  height: 62px; flex: none;
+  display: flex; align-items: center; gap: 24px;
+  padding: 0 20px;
+  border-bottom: 1px solid #1d3341;
+  background: linear-gradient(180deg, #172b38, #10212c);
+}
+.v3 .brand { display: flex; align-items: center; gap: 10px; width: 212px; flex: none; }
+.v3 .brand img { width: 29px; height: 29px; filter: saturate(.85) contrast(1.06); }
+.v3 .brand-word {
+  color: #e7f4fa; font-family: "Bahnschrift SemiBold", "Segoe UI", sans-serif;
+  font-size: 16px; line-height: 1; letter-spacing: .12em;
+}
+.v3 .brand-sub { margin-top: 4px; color: #7997a8; font-family: "Cascadia Mono", monospace; font-size: 7.5px; letter-spacing: .18em; }
+.v3 .tabs { display: flex; align-self: stretch; align-items: center; gap: 2px; }
+.v3 .tab {
+  height: 100%; padding: 0 14px;
+  display: flex; align-items: center; gap: 7px;
+  color: #88a3b2; font-size: 11px; letter-spacing: .04em;
+  border-bottom: 2px solid transparent;
+}
+.v3 .tab:hover { color: #e0eef4; background: rgba(255,255,255,.025); }
+.v3 .tab.active { color: #f0f8fb; border-bottom-color: var(--cyan); }
+.v3 .tab .tab-badge {
+  min-width: 15px; height: 15px; padding: 0 4px;
+  display: grid; place-items: center;
+  border-radius: 8px; background: #284557; color: #b9d2de;
+  font-family: "Cascadia Mono", monospace; font-size: 8px;
+}
+.v3 .topbar-spacer { flex: 1; }
+.v3 .top-search {
+  width: 252px; height: 32px;
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 9px;
+  border: 1px solid #2b4657; border-radius: 3px;
+  background: #0b1821;
+  color: #7190a1;
+}
+.v3 .top-search input { flex: 1 1 auto; width: auto; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); font-size: 10.5px; }
+.v3 .top-search input::placeholder { color: #607f90; }
+.v3 .top-search .i { width: 14px; height: 14px; }
+.v3 .steam-state {
+  display: flex; align-items: center; gap: 6px;
+  color: #8ba8b7; font-size: 9.5px; white-space: nowrap;
+}
+.v3 .steam-state i { width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px rgba(168,212,20,.1); }
+.v3 .icon-button { width: 29px; height: 29px; display: grid; place-items: center; border-radius: 3px; color: #85a1b0; }
+.v3 .icon-button:hover { background: #1a3040; color: #f1f8fb; }
+.v3 .avatar {
+  width: 28px; height: 28px; border-radius: 2px;
+  display: grid; place-items: center;
+  border: 1px solid #5a7f91;
+  background: linear-gradient(145deg, #3f677b, #243d4c);
+  color: #e6f3f7; font-family: "Bahnschrift", sans-serif; font-size: 11px;
+}
+.v3 .body { min-height: 0; flex: 1; display: flex; }
+.v3 .content { min-width: 0; flex: 1; padding: 18px 22px 16px; display: flex; flex-direction: column; }
+.v3 .hero {
+  position: relative; flex: none; height: 208px;
+  overflow: hidden; border: 1px solid #2b4b5c; border-radius: 3px;
+  background: #12232e;
+}
+.v3 .hero-art { position: absolute; inset: 0; }
+.v3 .hero-art img { width: 100%; height: 100%; object-fit: cover; object-position: center 28%; filter: saturate(.88) contrast(1.04); transform: scale(1.01); }
+.v3 .hero::after {
+  content: ""; position: absolute; inset: 0;
+  background:
+    linear-gradient(90deg, rgba(6,16,22,.96) 0%, rgba(8,20,28,.8) 42%, rgba(7,17,23,.14) 78%),
+    linear-gradient(0deg, rgba(5,14,19,.74) 0%, transparent 55%);
+}
+.v3 .hero-copy { position: absolute; z-index: 1; left: 26px; bottom: 22px; max-width: 560px; }
+.v3 .hero-eyebrow { display: flex; align-items: center; gap: 7px; color: #8ab3c6; font-family: "Cascadia Mono", monospace; font-size: 8.5px; letter-spacing: .14em; }
+.v3 .hero-eyebrow i { width: 6px; height: 6px; border-radius: 50%; background: var(--cyan); }
+.v3 .hero h1 {
+  margin: 8px 0 0;
+  color: #f0fafd;
+  font-family: "Bahnschrift SemiBold", "Noto Sans SC", sans-serif;
+  font-size: 31px; line-height: 1.15; font-weight: 600; letter-spacing: -.02em;
+}
+.v3 .hero h1 span { margin-left: 9px; color: #a8c7d5; font-family: "Noto Sans SC", sans-serif; font-size: 14px; font-weight: 300; letter-spacing: .02em; }
+.v3 .hero p { margin: 7px 0 0; color: #a1bbc7; font-size: 10.5px; }
+.v3 .hero p b { color: #dff7ff; font-weight: 500; }
+.v3 .hero-chips { display: flex; gap: 6px; margin-top: 12px; }
+.v3 .hero-chip {
+  height: 21px; padding: 0 7px; display: inline-flex; align-items: center; gap: 5px;
+  border: 1px solid rgba(145,194,214,.3); border-radius: 2px;
+  background: rgba(7,19,26,.44); color: #b6d2dd;
+  font-size: 8.5px;
+}
+.v3 .hero-chip .i { width: 11px; height: 11px; color: var(--green); }
+.v3 .hero-actions { position: absolute; z-index: 1; right: 22px; bottom: 22px; display: flex; gap: 7px; }
+.v3 .hero-button {
+  height: 31px; padding: 0 11px; display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid rgba(175,222,239,.3); border-radius: 2px;
+  background: rgba(7,19,26,.42); color: #d7ebf2; font-size: 10px;
+  backdrop-filter: blur(4px);
+}
+.v3 .hero-button:hover { background: rgba(16,41,54,.8); border-color: #79c7e9; }
+.v3 .hero-button.primary { border-color: var(--cyan); background: var(--cyan); color: #07131a; font-weight: 650; }
+.v3 .hero-button.primary:hover { background: #9de0ff; border-color: #9de0ff; }
+.v3 .hero-button .i { width: 13px; height: 13px; }
+.v3 .toolbar { flex: none; min-height: 47px; display: flex; align-items: center; gap: 4px; }
+.v3 .toolbar-tab {
+  height: 27px; padding: 0 9px; display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid transparent; border-radius: 2px; color: #7796a7; font-size: 10px;
+}
+.v3 .toolbar-tab .n { color: #526f80; font-family: "Cascadia Mono", monospace; font-size: 8.5px; }
+.v3 .toolbar-tab:hover { color: #d8eaf1; background: #132a37; }
+.v3 .toolbar-tab.active { border-color: #375d71; background: #173241; color: #eef8fb; }
+.v3 .toolbar-tab.active .n { color: #a9c9d7; }
+.v3 .toolbar-spacer { flex: 1; }
+.v3 .toolbar-button { display: inline-flex; align-items: center; gap: 5px; color: #7e9dac; font-size: 9.5px; }
+.v3 .toolbar-button:hover { color: #d8eaf1; }
+.v3 .toolbar-button .i { width: 12px; height: 12px; }
+.v3 .view-toggle { display: inline-flex; padding: 2px; margin-left: 8px; border: 1px solid #274352; border-radius: 2px; background: #0b1a23; }
+.v3 .view-toggle button { width: 23px; height: 21px; display: grid; place-items: center; border-radius: 1px; color: #62808f; }
+.v3 .view-toggle button.active { color: var(--cyan); background: #1b3948; }
+.v3 .view-toggle .i { width: 12px; height: 12px; }
+.v3 .grid-wrap { min-height: 0; flex: 1; overflow-y: auto; padding: 0 1px 4px 0; }
+.v3 .workshop-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; align-content: start; }
+.v3 .workshop-card {
+  min-width: 0; overflow: hidden;
+  border: 1px solid #203a49; border-radius: 2px;
+  background: #0d1d26;
+  cursor: pointer;
+  transition: border-color .16s ease, background .16s ease, transform .16s ease;
+}
+.v3 .workshop-card:hover { border-color: #3e6d84; background: #112631; transform: translateY(-1px); }
+.v3 .workshop-card.is-selected { border-color: var(--cyan); box-shadow: 0 0 0 1px rgba(107,199,242,.13); }
+.v3 .workshop-art { position: relative; aspect-ratio: 16 / 8.9; overflow: hidden; background: #0a151c; }
+.v3 .workshop-art::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(180deg, transparent 56%, rgba(7,16,22,.55));
+}
+.v3 .workshop-art img { width: 100%; height: 100%; object-fit: cover; filter: saturate(.79) contrast(1.03); transition: transform .35s ease, filter .35s ease; }
+.v3 .workshop-card:hover .workshop-art img { transform: scale(1.035); filter: saturate(.95); }
+.v3 .workshop-live {
+  position: absolute; z-index: 1; left: 7px; bottom: 7px;
+  height: 16px; padding: 0 5px;
+  display: inline-flex; align-items: center;
+  border: 1px solid rgba(176,212,224,.28); border-radius: 1px;
+  background: rgba(7,16,22,.68);
+  color: #a5c1cd; font-family: "Cascadia Mono", monospace; font-size: 7.5px; letter-spacing: .08em;
+}
+.v3 .workshop-live.on { background: var(--green); border-color: var(--green); color: #111700; font-weight: 700; }
+.v3 .workshop-copy { padding: 9px 9px 8px; }
+.v3 .workshop-copy h3 { margin: 0; color: #d9e8ee; font-size: 11px; line-height: 1.4; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.v3 .workshop-meta { display: flex; align-items: center; gap: 5px; margin-top: 4px; color: #7191a1; font-family: "Cascadia Mono", monospace; font-size: 8px; }
+.v3 .workshop-meta .dot { width: 2px; height: 2px; border-radius: 50%; background: #456676; }
+.v3 .workshop-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 7px; padding-top: 7px; border-top: 1px solid #1b313d; }
+.v3 .workshop-cat { color: #5f7f8f; font-size: 8.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.v3 .switch {
+  position: relative; width: 29px; height: 16px; flex: none;
+  border: 1px solid #385767; border-radius: 9px; background: #1a303d;
+}
+.v3 .switch .switch-knob { position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: #7995a3; transition: transform .16s ease, background .16s ease; }
+.v3 .switch.on { border-color: var(--green); background: var(--green); }
+.v3 .switch.on .switch-knob { transform: translateX(13px); background: #111700; }
+.v3 .add-card {
+  min-height: 196px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px;
+  border: 1px dashed #2f5264; border-radius: 2px;
+  background: rgba(14,31,41,.5); color: #7292a1;
+}
+.v3 .add-card:hover { border-color: var(--cyan); color: #d5ecf5; background: rgba(22,51,66,.6); }
+.v3 .add-icon { width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid #355c6f; border-radius: 50%; color: var(--cyan); }
+.v3 .add-icon .i { width: 15px; height: 15px; }
+.v3 .add-card strong { color: #9db8c5; font-size: 10px; font-weight: 500; }
+.v3 .add-card span { color: #5f7c8b; font-size: 8.5px; }
+.v3 .side {
+  width: 332px; flex: none;
+  border-left: 1px solid #1f3744;
+  background: #0b1921;
+  padding: 17px 17px 14px;
+  display: flex; flex-direction: column; gap: 13px;
+  overflow-y: auto;
+}
+.v3 .side-head { display: flex; align-items: center; justify-content: space-between; }
+.v3 .side-title { display: flex; align-items: center; gap: 8px; color: #d3e5ec; font-size: 12px; font-weight: 600; }
+.v3 .side-title .i { width: 15px; height: 15px; color: var(--cyan); }
+.v3 .live-tag { display: inline-flex; align-items: center; gap: 5px; color: #9dc96a; font-family: "Cascadia Mono", monospace; font-size: 7.5px; letter-spacing: .12em; }
+.v3 .live-tag i { width: 5px; height: 5px; border-radius: 50%; background: var(--green); }
+.v3 .sync-box { border: 1px solid #263e4b; border-radius: 2px; background: #0e202a; padding: 12px; }
+.v3 .sync-main { display: flex; align-items: center; gap: 11px; }
+.v3 .ring {
+  width: 48px; height: 48px; border-radius: 50%; flex: none;
+  background: conic-gradient(var(--cyan) 0 68%, #1d3542 68% 100%);
+  display: grid; place-items: center; position: relative;
+}
+.v3 .ring::before { content: ""; position: absolute; inset: 4px; border-radius: 50%; background: #0e202a; }
+.v3 .ring span { position: relative; z-index: 1; color: #cdeaf4; font-family: "Cascadia Mono", monospace; font-size: 10px; }
+.v3 .sync-copy { min-width: 0; }
+.v3 .sync-title { color: #cfe4ec; font-size: 10.5px; }
+.v3 .sync-sub { margin-top: 3px; color: #6c8b9b; font-size: 8.5px; }
+.v3 .progress-line { height: 3px; margin-top: 11px; border-radius: 3px; background: #1c3542; overflow: hidden; }
+.v3 .progress-line i { display: block; width: 68%; height: 100%; background: var(--cyan); }
+.v3 .sync-foot { display: flex; justify-content: space-between; margin-top: 6px; color: #5e7f8f; font-family: "Cascadia Mono", monospace; font-size: 8px; }
+.v3 .queue-head { display: flex; align-items: center; justify-content: space-between; }
+.v3 .queue-head span { color: #9eb6c1; font-size: 9.5px; }
+.v3 .queue-head button { display: inline-flex; align-items: center; gap: 3px; color: #6e93a3; font-size: 8px; }
+.v3 .queue-head button:hover { color: var(--cyan); }
+.v3 .queue-list { display: flex; flex-direction: column; gap: 8px; margin-top: 7px; }
+.v3 .queue-item { display: flex; align-items: center; gap: 8px; }
+.v3 .queue-art { width: 46px; height: 29px; flex: none; overflow: hidden; border-radius: 1px; background: #132c39; }
+.v3 .queue-art img { width: 100%; height: 100%; object-fit: cover; filter: saturate(.6); }
+.v3 .queue-copy { min-width: 0; flex: 1; }
+.v3 .queue-name { color: #b5ccd5; font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.v3 .queue-meta { display: flex; justify-content: space-between; margin-top: 4px; color: #5e7d8c; font-family: "Cascadia Mono", monospace; font-size: 7.5px; }
+.v3 .queue-bar { height: 2px; margin-top: 4px; background: #1c3542; }
+.v3 .queue-bar i { display: block; height: 100%; background: var(--cyan); }
+.v3 .side-section { padding-top: 1px; }
+.v3 .side-section-label { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; color: #5f7f8f; font-family: "Cascadia Mono", monospace; font-size: 8px; letter-spacing: .12em; }
+.v3 .side-section-label b { color: #8ba7b4; font-family: "Noto Sans SC", sans-serif; font-size: 8px; font-weight: 400; letter-spacing: 0; }
+.v3 .storage-row { display: flex; align-items: baseline; justify-content: space-between; color: #adc3cd; font-size: 9px; }
+.v3 .storage-row strong { color: #d8e7ed; font-family: "Cascadia Mono", monospace; font-size: 11px; font-weight: 400; }
+.v3 .storage-row span { color: #607f8e; font-size: 8px; }
+.v3 .storage-bar { height: 3px; margin: 7px 0 5px; border-radius: 3px; background: #1b3441; overflow: hidden; }
+.v3 .storage-bar i { display: block; width: 18%; height: 100%; border-radius: inherit; background: #6d8791; }
+.v3 .recent { display: flex; flex-direction: column; gap: 7px; }
+.v3 .recent-row { display: flex; align-items: center; gap: 6px; color: #6b8998; font-size: 8.5px; }
+.v3 .recent-row i { width: 4px; height: 4px; border-radius: 50%; background: #456a7b; }
+.v3 .recent-row span:last-child { margin-left: auto; color: #4e7080; font-family: "Cascadia Mono", monospace; font-size: 7.5px; }
+.v3 .quick-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 7px; }
+.v3 .quick-button {
+  height: 29px; display: flex; align-items: center; gap: 6px; padding: 0 8px;
+  border: 1px solid #263e4b; border-radius: 2px;
+  background: #0e202a; color: #7e9dac; font-size: 8.5px;
+}
+.v3 .quick-button:hover { border-color: #4d788d; color: #d6eaf2; }
+.v3 .quick-button .i { width: 12px; height: 12px; }
+.v3 .workshop-button {
+  margin-top: auto; height: 32px; display: flex; align-items: center; justify-content: center; gap: 7px;
+  border: 1px solid #356276; border-radius: 2px;
+  background: #102a37; color: #b9dce9; font-size: 9.5px;
+}
+.v3 .workshop-button:hover { border-color: var(--cyan); background: #153644; color: #eefaff; }
+.v3 .workshop-button .i { width: 13px; height: 13px; }
+.v3 .statusbar {
+  height: 28px; flex: none; display: flex; align-items: center; gap: 14px;
+  padding: 0 16px;
+  border-top: 1px solid #1d3341;
+  background: #08131a; color: #557585; font-family: "Cascadia Mono", monospace; font-size: 8px;
+}
+.v3 .statusbar .ok { display: inline-flex; align-items: center; gap: 5px; color: #7d9a74; }
+.v3 .statusbar .ok i { width: 5px; height: 5px; border-radius: 50%; background: var(--green); }
+.v3 .statusbar .spacer { flex: 1; }
+@media (max-width: 1280px) {
+  .v3 .side { width: 300px; }
+  .v3 .top-search { width: 210px; }
+  .v3 .workshop-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+</style>
+</head>
+<body class="v3">
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.2"/><rect x="14" y="3" width="7" height="7" rx="1.2"/><rect x="3" y="14" width="7" height="7" rx="1.2"/><rect x="14" y="14" width="7" height="7" rx="1.2"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01" stroke-width="2.4"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4.2 4.2"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h8M16 7h4M4 17h4M12 17h8"/><circle cx="14" cy="7" r="2.2"/><circle cx="10" cy="17" r="2.2"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.1 6.4"/><path d="M20 4v7h-7"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.7v12.6c0 .8.9 1.3 1.6.9l10.1-6.3c.6-.4.6-1.4 0-1.8L9.6 4.8c-.7-.4-1.6.1-1.6.9Z" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.1"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.6 2.6-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21h-3.7v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1L4.9 17l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3.6v-3.7h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9L4.9 7.3 7.5 4.7l.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.5v-.2h3.7v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1 2.6 2.6-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.5 1h.2v3.7h-.2a1.7 1.7 0 0 0-1.5 1Z"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.8 20v-1.5a5.2 5.2 0 0 1 10.4 0V20"/><path d="M16.2 5.1a3.2 3.2 0 0 1 0 6.1M17.6 14.7a5.2 5.2 0 0 1 3.4 4.8V20"/></symbol>
+  <symbol id="i-crosshair" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.4"/><path d="M12 2.5v5M12 16.5v5M2.5 12h5M16.5 12h5"/><circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-map" viewBox="0 0 24 24"><path d="m3.5 6.2 5-2.7 7 2.7 5-2.7v14.3l-5 2.7-7-2.7-5 2.7Z"/><path d="M8.5 3.5v14.3M15.5 6.2v14.3"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24"><path d="m12 3 8 4.3v9.4L12 21l-8-4.3V7.3Z"/><path d="m4.4 7.5 7.6 4.2 7.6-4.2M12 11.7V21"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5Z"/><path d="m3.8 12.2 8.2 4.6 8.2-4.6M3.8 16.5l8.2 4.5 8.2-4.5"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 7.4a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2Z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 3.8h5M6.5 7l.8 13h9.4l.8-13M10 11v5M14 11v5"/></symbol>
+  <symbol id="i-archive" viewBox="0 0 24 24"><rect x="3.5" y="4" width="17" height="4" rx="1"/><path d="M5 8v12h14V8M9.5 12h5"/></symbol>
+  <symbol id="i-drive" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="M7 15h.01M11 15h.01M3.5 11h17"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7.5 10.5 12 15l4.5-4.5M4 19.5h16"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4M7.5 8.5 12 4l4.5 4.5M4 19.5h16"/></symbol>
+  <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6.5 9 5.5 5.5L17.5 9"/></symbol>
+  <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9.5 6.5 5.5 5.5-5.5 5.5"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m4.8 12.3 4.6 4.6 9.8-9.8"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.3" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3.8 21 20H3Z"/><path d="M12 9v4.8M12 17.2h.01" stroke-width="2"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 19 6v5.2c0 4.4-2.8 7.6-7 9.8-4.2-2.2-7-5.4-7-9.8V6Z"/><path d="m8.8 11.8 2.1 2.1 4.3-4.4"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4 10.5 13.5"/><path d="M19 14v5a1.5 1.5 0 0 1-1.5 1.5h-12A1.5 1.5 0 0 1 4 19V7a1.5 1.5 0 0 1 1.5-1.5H10"/></symbol>
+  <symbol id="i-gamepad" viewBox="0 0 24 24"><path d="M7.2 7h9.6c2.5 0 4.1 2 4.6 4.4l1 5.1c.3 1.7-1.5 2.9-2.9 1.8l-2.8-2.2H7.3l-2.8 2.2c-1.4 1.1-3.2-.1-2.9-1.8l1-5.1C3.1 9 4.7 7 7.2 7Z"/><path d="M7 11v3.5M5.3 12.8h3.5M16.2 12.2h.01M18.3 14.2h.01" stroke-width="2"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.3"/><path d="M12 7.5V12l3 2"/></symbol>
+  <symbol id="i-tag" viewBox="0 0 24 24"><path d="m3.8 12 8.1-8.1h6.9a1.5 1.5 0 0 1 1.5 1.5v6.9L12 20.4a1.6 1.6 0 0 1-2.3 0L3.8 14.3a1.6 1.6 0 0 1 0-2.3Z"/><circle cx="16.2" cy="7.8" r="1.2" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9Z"/></symbol>
+  <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6 10h.01M9.5 10h.01M13 10h.01M16.5 10h.01M20 10h.01M6 13.5h.01M9.5 13.5h.01M13 13.5h.01M16.5 13.5h.01M6 17h.01M9.5 17h.01M13 17h.01M16.5 17h.01M20 17h.01"/></symbol>
+  <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18.4 9.8a6.4 6.4 0 0 0-12.8 0c0 7.2-3 7.2-3 8.4h18.8c0-1.2-3-1.2-3-8.4Z"/><path d="M10 21h4"/></symbol>
+  <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5.2" rx="8" ry="3.2"/><path d="M4 5.2v6.6c0 1.8 3.6 3.2 8 3.2s8-1.4 8-3.2V5.2"/><path d="M4 11.8v6.6c0 1.8 3.6 3.2 8 3.2s8-1.4 8-3.2v-6.6"/></symbol>
+  <symbol id="i-command" viewBox="0 0 24 24"><path d="M9 4.5a2.5 2.5 0 1 1-2.5 2.5V17A2.5 2.5 0 1 1 9 14.5h6A2.5 2.5 0 1 0 17.5 17V7A2.5 2.5 0 1 0 15 9.5H9Z"/></symbol>
+  <symbol id="i-panel-left" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></symbol>
+  <symbol id="i-clock-rewind" viewBox="0 0 24 24"><path d="M4 4v6h6"/><path d="M4.8 14a8 8 0 1 1 1.3 5"/><path d="M12 8v4l2.5 1.5"/></symbol>
+  <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M4 12h16M14 6l6 6-6 6"/></symbol>
+  <symbol id="i-arrow-up-right" viewBox="0 0 24 24"><path d="M7 17 17 7M8 7h9v9"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.8 12s3.3-6 9.2-6 9.2 6 9.2 6-3.3 6-9.2 6-9.2-6-9.2-6Z"/><circle cx="12" cy="12" r="2.6"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 2.8h8l4 4V21H6Z"/><path d="M14 2.8v4h4M9 12h6M9 16h4"/></symbol>
+  <symbol id="i-warning" viewBox="0 0 24 24"><path d="M12 3.3 21.2 20H2.8Z"/><path d="M12 8.8v5M12 17h.01" stroke-width="2"/></symbol>
+  <symbol id="i-dot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-drag" viewBox="0 0 24 24"><path d="M9 6h.01M9 12h.01M9 18h.01M15 6h.01M15 12h.01M15 18h.01" stroke-width="2.4"/></symbol>
+</svg>
+
+
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <img src="assets/app-icon.png" alt="">
+      <div><div class="brand-word">L4D2 WORKSHOP</div><div class="brand-sub">LOCAL LIBRARY / STEAM LINKED</div></div>
+    </div>
+    <nav class="tabs" data-nav-group aria-label="主导航">
+      <button class="tab active" data-nav type="button">库</button>
+      <button class="tab" data-nav type="button">工坊</button>
+      <button class="tab" data-nav type="button">下载 <span class="tab-badge">2</span></button>
+      <button class="tab" data-nav type="button">合集</button>
+    </nav>
+    <div class="topbar-spacer"></div>
+    <label class="top-search"><svg class="i" aria-hidden="true"><use href="#i-search"></use></svg><input data-search placeholder="搜索你的模组库…" aria-label="搜索你的模组库"></label>
+    <span class="steam-state"><i></i>STEAM 已连接</span>
+    <button class="icon-button" type="button" aria-label="通知" data-toast="2 个下载任务正在进行"><svg class="i" aria-hidden="true"><use href="#i-bell"></use></svg></button>
+    <button class="icon-button" type="button" aria-label="设置" data-toast="打开设置"><svg class="i" aria-hidden="true"><use href="#i-settings"></use></svg></button>
+    <span class="avatar" aria-label="账户">P</span>
+  </header>
+  <div class="body">
+    <main class="content">
+      <section class="hero">
+        <div class="hero-art"><img src="assets/mods/mod2.webp" alt="Ellis 当前外观精选"></div>
+        <div class="hero-copy">
+          <div class="hero-eyebrow"><i></i>FEATURED COLLECTION / 当前外观</div>
+          <h1>Ellis 的夏日衣橱 <span>Ellis / 艾利斯</span></h1>
+          <p><b>6</b> 个模组 · <b>1</b> 个已启用 · 同组自动互斥，游戏内即时同步</p>
+          <div class="hero-chips">
+            <span class="hero-chip"><svg class="i" aria-hidden="true"><use href="#i-check"></use></svg> VRC Plum 使用中</span>
+            <span class="hero-chip"><svg class="i" aria-hidden="true"><use href="#i-shield"></use></svg> 本地库健康</span>
+          </div>
+        </div>
+        <div class="hero-actions">
+          <button class="hero-button" type="button" data-toast="打开 Ellis 外观合集"><svg class="i" aria-hidden="true"><use href="#i-layers"></use></svg>查看合集</button>
+          <button class="hero-button primary" type="button" data-toast="正在启动 Left 4 Dead 2"><svg class="i" aria-hidden="true"><use href="#i-play"></use></svg>启动游戏</button>
+        </div>
+      </section>
+      <div class="toolbar">
+        <button class="toolbar-tab active" type="button" data-chip>全部 <span class="n">6</span></button>
+        <button class="toolbar-tab" type="button" data-chip>已启用 <span class="n">1</span></button>
+        <button class="toolbar-tab" type="button" data-chip>未启用 <span class="n">5</span></button>
+        <div class="toolbar-spacer"></div>
+        <button class="toolbar-button" type="button" data-toast="按最近添加排序">最近添加 <svg class="i" aria-hidden="true"><use href="#i-chevron-down"></use></svg></button>
+        <div class="view-toggle" aria-label="视图">
+          <button class="active" type="button" aria-label="网格视图" data-toast="网格视图"><svg class="i" aria-hidden="true"><use href="#i-grid"></use></svg></button>
+          <button type="button" aria-label="列表视图" data-toast="列表视图"><svg class="i" aria-hidden="true"><use href="#i-list"></use></svg></button>
+        </div>
+      </div>
+      <div class="grid-wrap scroll-y">
+        <div class="workshop-grid">
+          
+<article class="workshop-card" data-select tabindex="0"
+  data-title="Koharu [Replace Ellis]" data-meta="角色 / Ellis"
+  data-size="116.1 MB" data-date="2 天前" data-file="3668116708.vpk"
+  data-img="assets/mods/mod1.webp" aria-label="Koharu [Replace Ellis]">
+  <div class="workshop-art">
+    <img src="assets/mods/mod1.webp" alt="Koharu [Replace Ellis] 预览">
+    <span class="workshop-live ">READY</span>
+  </div>
+  <div class="workshop-copy">
+    <h3>Koharu [Replace Ellis]</h3>
+    <div class="workshop-meta"><span>116.1 MB</span><span class="dot"></span><span>2 天前</span></div>
+    <div class="workshop-foot">
+      <span class="workshop-cat">角色 / Ellis</span>
+      <button type="button" class="switch " role="switch" aria-checked="false" aria-label="切换 Koharu [Replace Ellis]" data-switch data-toast-on="已启用，同组旧模组已自动停用" data-toast-off="已停用"><span class="switch-knob"></span></button>
+    </div>
+  </div>
+</article>
+
+<article class="workshop-card" data-select tabindex="0"
+  data-title="VRC lime 甜点屋 打歌服" data-meta="角色 / Ellis"
+  data-size="93.0 MB" data-date="4 天前" data-file="3664792140.vpk"
+  data-img="assets/mods/mod2.webp" aria-label="VRC lime 甜点屋 打歌服">
+  <div class="workshop-art">
+    <img src="assets/mods/mod2.webp" alt="VRC lime 甜点屋 打歌服 预览">
+    <span class="workshop-live ">READY</span>
+  </div>
+  <div class="workshop-copy">
+    <h3>VRC lime 甜点屋 打歌服</h3>
+    <div class="workshop-meta"><span>93.0 MB</span><span class="dot"></span><span>4 天前</span></div>
+    <div class="workshop-foot">
+      <span class="workshop-cat">角色 / Ellis</span>
+      <button type="button" class="switch " role="switch" aria-checked="false" aria-label="切换 VRC lime 甜点屋 打歌服" data-switch data-toast-on="已启用，同组旧模组已自动停用" data-toast-off="已停用"><span class="switch-knob"></span></button>
+    </div>
+  </div>
+</article>
+
+<article class="workshop-card is-selected" data-select tabindex="0"
+  data-title="VRC プラム Plum replace ellis" data-meta="角色 / Ellis"
+  data-size="34.1 MB" data-date="本周" data-file="3659210344.vpk"
+  data-img="assets/mods/mod3.webp" aria-label="VRC プラム Plum replace ellis">
+  <div class="workshop-art">
+    <img src="assets/mods/mod3.webp" alt="VRC プラム Plum replace ellis 预览">
+    <span class="workshop-live on">ACTIVE</span>
+  </div>
+  <div class="workshop-copy">
+    <h3>VRC プラム Plum replace ellis</h3>
+    <div class="workshop-meta"><span>34.1 MB</span><span class="dot"></span><span>本周</span></div>
+    <div class="workshop-foot">
+      <span class="workshop-cat">角色 / Ellis</span>
+      <button type="button" class="switch on" role="switch" aria-checked="true" aria-label="切换 VRC プラム Plum replace ellis" data-switch data-toast-on="已启用，同组旧模组已自动停用" data-toast-off="已停用"><span class="switch-knob"></span></button>
+    </div>
+  </div>
+</article>
+
+<article class="workshop-card" data-select tabindex="0"
+  data-title="[Gakuen IDOLM@STER] Fujita" data-meta="角色 / Ellis"
+  data-size="146.4 MB" data-date="1 周前" data-file="3671024551.vpk"
+  data-img="assets/mods/mod4.webp" aria-label="[Gakuen IDOLM@STER] Fujita">
+  <div class="workshop-art">
+    <img src="assets/mods/mod4.webp" alt="[Gakuen IDOLM@STER] Fujita 预览">
+    <span class="workshop-live ">READY</span>
+  </div>
+  <div class="workshop-copy">
+    <h3>[Gakuen IDOLM@STER] Fujita</h3>
+    <div class="workshop-meta"><span>146.4 MB</span><span class="dot"></span><span>1 周前</span></div>
+    <div class="workshop-foot">
+      <span class="workshop-cat">角色 / Ellis</span>
+      <button type="button" class="switch " role="switch" aria-checked="false" aria-label="切换 [Gakuen IDOLM@STER] Fujita" data-switch data-toast-on="已启用，同组旧模组已自动停用" data-toast-off="已停用"><span class="switch-knob"></span></button>
+    </div>
+  </div>
+</article>
+
+<article class="workshop-card" data-select tabindex="0"
+  data-title="【原神】菲谢尔 极夜真梦" data-meta="角色 / Ellis"
+  data-size="38.3 MB" data-date="2 周前" data-file="3648830117.vpk"
+  data-img="assets/mods/mod5.webp" aria-label="【原神】菲谢尔 极夜真梦">
+  <div class="workshop-art">
+    <img src="assets/mods/mod5.webp" alt="【原神】菲谢尔 极夜真梦 预览">
+    <span class="workshop-live ">READY</span>
+  </div>
+  <div class="workshop-copy">
+    <h3>【原神】菲谢尔 极夜真梦</h3>
+    <div class="workshop-meta"><span>38.3 MB</span><span class="dot"></span><span>2 周前</span></div>
+    <div class="workshop-foot">
+      <span class="workshop-cat">角色 / Ellis</span>
+      <button type="button" class="switch " role="switch" aria-checked="false" aria-label="切换 【原神】菲谢尔 极夜真梦" data-switch data-toast-on="已启用，同组旧模组已自动停用" data-toast-off="已停用"><span class="switch-knob"></span></button>
+    </div>
+  </div>
+</article>
+
+<article class="workshop-card" data-select tabindex="0"
+  data-title="雨衣替换 Ellis" data-meta="角色 / Ellis"
+  data-size="246.6 MB" data-date="3 周前" data-file="3639905428.vpk"
+  data-img="assets/mods/mod6.webp" aria-label="雨衣替换 Ellis">
+  <div class="workshop-art">
+    <img src="assets/mods/mod6.webp" alt="雨衣替换 Ellis 预览">
+    <span class="workshop-live ">READY</span>
+  </div>
+  <div class="workshop-copy">
+    <h3>雨衣替换 Ellis</h3>
+    <div class="workshop-meta"><span>246.6 MB</span><span class="dot"></span><span>3 周前</span></div>
+    <div class="workshop-foot">
+      <span class="workshop-cat">角色 / Ellis</span>
+      <button type="button" class="switch " role="switch" aria-checked="false" aria-label="切换 雨衣替换 Ellis" data-switch data-toast-on="已启用，同组旧模组已自动停用" data-toast-off="已停用"><span class="switch-knob"></span></button>
+    </div>
+  </div>
+</article>
+          <button class="add-card" type="button" data-toast="打开压缩包导入"><span class="add-icon"><svg class="i" aria-hidden="true"><use href="#i-plus"></use></svg></span><strong>导入压缩包</strong><span>ZIP / 7z / RAR</span></button>
+          <button class="add-card" type="button" data-toast="打开工坊链接解析"><span class="add-icon"><svg class="i" aria-hidden="true"><use href="#i-download"></use></svg></span><strong>从工坊添加</strong><span>粘贴链接或物品 ID</span></button>
+        </div>
+      </div>
+    </main>
+    <aside class="side">
+      <div class="side-head"><div class="side-title"><svg class="i" aria-hidden="true"><use href="#i-download"></use></svg>同步中心</div><span class="live-tag"><i></i>LIVE</span></div>
+      <div class="sync-box">
+        <div class="sync-main">
+          <div class="ring"><span>68%</span></div>
+          <div class="sync-copy"><div class="sync-title">正在检查工坊订阅</div><div class="sync-sub">2 个待处理 · 预计 01:24 完成</div></div>
+        </div>
+        <div class="progress-line"><i></i></div>
+        <div class="sync-foot"><span>Verifying local files</span><span>68 / 100</span></div>
+      </div>
+      <div class="side-section">
+        <div class="queue-head"><span>下载队列</span><button type="button" data-toast="打开下载管理器">全部任务 <svg class="i" aria-hidden="true"><use href="#i-arrow-right"></use></svg></button></div>
+        <div class="queue-list">
+          <div class="queue-item">
+            <div class="queue-art"><img src="assets/mods/mod4.webp" alt=""></div>
+            <div class="queue-copy"><div class="queue-name">[Gakuen IDOLM@STER] Fujita</div><div class="queue-meta"><span>146.4 MB</span><span>72%</span></div><div class="queue-bar"><i style="width:72%"></i></div></div>
+          </div>
+          <div class="queue-item">
+            <div class="queue-art"><img src="assets/mods/mod6.webp" alt=""></div>
+            <div class="queue-copy"><div class="queue-name">雨衣替换 Ellis</div><div class="queue-meta"><span>246.6 MB</span><span>等待中</span></div><div class="queue-bar"><i style="width:4%;background:#4f7180"></i></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="side-section">
+        <div class="side-section-label"><span>LIBRARY / 本地概况</span><b>128 FILES</b></div>
+        <div class="storage-row"><strong>4.8 GB</strong><span>可用 78.2 GB</span></div>
+        <div class="storage-bar"><i></i></div>
+        <div class="sync-foot"><span>Local addons</span><span>43 enabled</span></div>
+      </div>
+      <div class="side-section">
+        <div class="side-section-label"><span>RECENT / 最近更新</span><b>THIS WEEK</b></div>
+        <div class="recent">
+          <div class="recent-row"><i></i><span>VRC Plum replace ellis</span><span>01:12</span></div>
+          <div class="recent-row"><i></i><span>Koharu [Replace Ellis]</span><span>昨天</span></div>
+          <div class="recent-row"><i></i><span>死亡中心 · 重制版</span><span>3 天前</span></div>
+        </div>
+      </div>
+      <div class="side-section">
+        <div class="side-section-label"><span>QUICK ACTIONS / 快捷入口</span><b>4 ITEMS</b></div>
+        <div class="quick-actions">
+          <button class="quick-button" type="button" data-toast="打开游戏 addons 目录"><svg class="i" aria-hidden="true"><use href="#i-folder"></use></svg>游戏目录</button>
+          <button class="quick-button" type="button" data-toast="正在检查更新"><svg class="i" aria-hidden="true"><use href="#i-refresh"></use></svg>检查更新</button>
+          <button class="quick-button" type="button" data-toast="打开压缩包导入"><svg class="i" aria-hidden="true"><use href="#i-archive"></use></svg>压缩包导入</button>
+          <button class="quick-button" type="button" data-toast="正在清理缓存"><svg class="i" aria-hidden="true"><use href="#i-trash"></use></svg>清理缓存</button>
+        </div>
+      </div>
+      <button class="workshop-button" type="button" data-toast="打开 Steam 创意工坊页面"><svg class="i" aria-hidden="true"><use href="#i-external"></use></svg>打开 Steam 创意工坊</button>
+    </aside>
+  </div>
+  <footer class="statusbar">
+    <span class="ok"><i></i>STEAM WORKSHOP LINKED</span>
+    <span>128 MODS · 43 ENABLED</span>
+    <span>GAME CLOSED</span>
+    <span class="spacer"></span>
+    <span>E:\SteamLibrary\steamapps\common\Left 4 Dead 2\left4dead2\addons</span>
+  </footer>
+</div>
+
+<script src="assets/base.js"></script>
+</body>
+</html>

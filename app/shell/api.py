@@ -21,6 +21,7 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 from app.core import app_paths, paths as paths_core  # noqa: E402
+from app.core.classify import CONFLICT_CATEGORIES  # noqa: E402
 from app.core.library import Library  # noqa: E402
 from app.core.store import Store  # noqa: E402
 from app.shell import tasks  # noqa: E402
@@ -28,9 +29,6 @@ from app.shell.jobs import JobRunner  # noqa: E402
 
 APP_VERSION = "1.2.1"
 REPO_SLUG = "PolysaCHride/l4d2-mod-manager"
-
-# 互斥类别：同组外观只允许一个启用（与 app/ui/main_window.py:48 保持一致）
-MUTEX_CATS = {"角色", "特感", "枪械", "近战", "医疗品", "投掷"}
 
 
 def _ok(**kw):
@@ -225,7 +223,7 @@ class Api(object):
             "addedText": _fmt_ago(rec.get("added_at") or rec.get("mtime")),
             "pinned": bool(rec.get("pinned")),
             # 排序/分组辅助
-            "mutex": (rec.get("category") in MUTEX_CATS),
+            "mutex": (rec.get("category") in CONFLICT_CATEGORIES),
         }
 
     def _all_mods(self):
@@ -252,11 +250,14 @@ class Api(object):
             gd = settings.get("game_dir", "")
             gp = self._game_paths
             running = False
+            game_check_failed = False
             try:
                 from app.core import game as game_core
                 running = bool(game_core.is_l4d2_running())
             except Exception:
-                running = False
+                # 检测失败时不能当成「没运行」——那会让前端放行写入，
+                # 而游戏运行中写 addonlist.txt 会失败或损坏。
+                game_check_failed = True
             return _ok(
                 mods=mods,
                 settings={
@@ -267,7 +268,7 @@ class Api(object):
                     "motion": bool(settings.get("motion", True)),
                 },
                 stats={"total": len(mods), "enabled": enabled},
-                game={"running": running},
+                game={"running": running, "unknown": game_check_failed},
                 paths={
                     "addons": gp.addons_dir if gp else "",
                     "valid": bool(gp and gp.valid()),
@@ -303,21 +304,12 @@ class Api(object):
                 return _err("未配置游戏目录")
 
             enabled = bool(enabled)
-            siblings = []
-            if enabled and rec.get("category") in MUTEX_CATS:
-                cat, item = rec.get("category"), rec.get("item") or ""
-                if item:
-                    for other in self._store.mods().values():
-                        if (other.get("file") != file_name
-                                and other.get("category") == cat
-                                and (other.get("item") or "") == item
-                                and other.get("enabled")):
-                            siblings.append(other.get("file"))
-
-            self._library.set_enabled(file_name, enabled, mutex=True)
-            if siblings:
+            # zone 互斥由 core 负责，它已经算出被停用的兄弟项并返回。
+            # 这里不要自己再扫一遍 —— 那样会和 core 的规则静默分叉。
+            disabled = self._library.set_enabled(file_name, enabled, mutex=True) or []
+            if disabled:
                 self._emit("mods.changed", {"mods": self._all_mods()})
-            return _ok(enabled=enabled, disabled_siblings=siblings)
+            return _ok(enabled=enabled, disabled_siblings=list(disabled))
         except Exception as exc:
             return _err(exc)
 

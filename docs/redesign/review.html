@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>L4D2 Mod Manager · 视觉方案评审</title>
+<link rel="stylesheet" href="assets/base.css">
+<style>
+:root {
+  --paper: #f4f1ea;
+  --paper-2: #ece7dc;
+  --surface: #fbf9f5;
+  --ink: #17191c;
+  --ink-2: #34372f;
+  --muted: #696b61;
+  --dim: #8f8d81;
+  --line: #d9d1c2;
+  --line-strong: #b9ae9a;
+  --red: #c9362a;
+  --red-deep: #9e2118;
+  --olive: #49533b;
+  --green: #5d6b3e;
+  --dark: #141619;
+  --sans: "Noto Sans SC", "Microsoft YaHei UI", "Segoe UI", sans-serif;
+  --serif: "Noto Serif SC", "Source Han Serif SC", "SimSun", serif;
+  --mono: "Cascadia Mono", "Consolas", monospace;
+}
+body.review {
+  background:
+    radial-gradient(rgba(23,25,28,.036) .6px, transparent .7px) 0 0 / 4px 4px,
+    var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  overflow-y: auto;
+  min-height: 100vh;
+}
+.review a { color: inherit; }
+.review .top-strip {
+  height: 40px; display: flex; align-items: center; gap: 18px;
+  padding: 0 34px; background: var(--dark); color: #cdd2cb;
+}
+.review .top-brand { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 9px; letter-spacing: .12em; }
+.review .top-brand img { width: 17px; height: 17px; filter: grayscale(1); opacity: .8; }
+.review .top-brand b { color: #f2f5ee; font-weight: 400; }
+.review .top-strip .nav { display: flex; gap: 16px; margin-left: 20px; }
+.review .top-strip .nav a { color: #858d84; font-size: 9px; letter-spacing: .04em; }
+.review .top-strip .nav a:hover { color: #f1f4ee; }
+.review .top-strip .right { margin-left: auto; display: flex; align-items: center; gap: 14px; color: #747d75; font-family: var(--mono); font-size: 8px; letter-spacing: .08em; }
+.review .top-strip .right b { color: #d8ded5; font-weight: 400; }
+.review .wrap { width: min(1280px, calc(100% - 72px)); margin: 0 auto; }
+.review .hero {
+  display: grid; grid-template-columns: minmax(0, 1fr) 292px; gap: 50px;
+  padding: 48px 0 44px; border-bottom: 1px solid var(--line);
+}
+.review .kicker { display: flex; align-items: center; gap: 9px; color: var(--red); font-family: var(--mono); font-size: 9px; letter-spacing: .16em; }
+.review .kicker::before { content: ""; width: 24px; height: 1px; background: var(--red); }
+.review .hero h1 {
+  margin: 17px 0 0;
+  font-family: var(--serif); font-size: clamp(48px, 5.8vw, 74px); line-height: 1.1; font-weight: 900; letter-spacing: -.03em;
+}
+.review .hero h1 em { color: var(--red); font-style: normal; }
+.review .hero p { max-width: 560px; margin: 18px 0 0; color: var(--muted); font-size: 12px; line-height: 1.85; }
+.review .hero-meta { align-self: end; padding-bottom: 8px; }
+.review .meta-row { display: flex; align-items: baseline; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.review .meta-row span { width: 56px; flex: none; color: var(--dim); font-family: var(--mono); font-size: 8px; letter-spacing: .08em; }
+.review .meta-row b { color: var(--ink-2); font-size: 10px; font-weight: 500; line-height: 1.55; }
+.review .meta-note { margin-top: 14px; color: var(--dim); font-size: 9px; line-height: 1.7; }
+.review .section { padding: 38px 0 0; }
+.review .section-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 30px; margin-bottom: 18px; }
+.review .section-head .label { color: var(--red); font-family: var(--mono); font-size: 9px; letter-spacing: .13em; }
+.review .section-head h2 { margin: 6px 0 0; font-family: var(--serif); font-size: 28px; font-weight: 900; letter-spacing: -.02em; }
+.review .section-head p { max-width: 430px; margin: 0 0 2px; color: var(--muted); font-size: 10px; line-height: 1.7; text-align: right; }
+.review .baseline {
+  display: grid; grid-template-columns: 1.1fr .9fr; gap: 30px;
+  align-items: stretch;
+}
+.review .baseline-figure { margin: 0; border: 1px solid var(--line-strong); background: #0b0d0f; box-shadow: 6px 6px 0 rgba(80,67,49,.1); }
+.review .baseline-figure img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; object-position: top left; }
+.review .baseline-figure figcaption { display: flex; align-items: center; justify-content: space-between; padding: 9px 12px; border-top: 1px solid #2c2d2c; color: #8d968b; font-family: var(--mono); font-size: 8px; }
+.review .baseline-figure figcaption b { color: #cbd4c4; font-weight: 400; }
+.review .findings { display: flex; flex-direction: column; justify-content: center; }
+.review .finding { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 10px; padding: 13px 0; border-bottom: 1px solid var(--line); }
+.review .finding:first-child { border-top: 1px solid var(--line); }
+.review .finding .n { color: var(--red); font-family: var(--mono); font-size: 9px; padding-top: 2px; }
+.review .finding b { color: var(--ink-2); font-size: 11px; font-weight: 600; }
+.review .finding p { margin: 4px 0 0; color: var(--muted); font-size: 9.5px; line-height: 1.6; }
+.review .note-strip {
+  display: flex; align-items: center; gap: 8px; margin-top: 14px; padding: 9px 11px;
+  border: 1px dashed var(--line-strong); color: var(--muted); font-size: 9px;
+}
+.review .note-strip b { color: var(--ink-2); font-weight: 600; }
+.review .dir-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.review .dir-card {
+  grid-column: span 1;
+  min-width: 0; display: flex; flex-direction: column;
+  border: 1px solid var(--line); background: var(--surface); box-shadow: 4px 4px 0 rgba(80,67,49,.08);
+}
+.review .dir-card.wide { grid-column: span 2; display: grid; grid-template-columns: 1fr 1fr; }
+.review .dir-card.wide .shot { border-right: 1px solid var(--line); border-bottom: 0; }
+.review .dir-card.wide .shot img { width: 100%; height: 100%; aspect-ratio: auto; object-fit: cover; }
+.review .dir-card.wide .dir-body { padding: 20px 22px 18px; }
+.review .dir-card.wide .dir-name { font-size: 20px; }
+.review .dir-card.wide .dir-lead { font-size: 14px; }
+.review .shot { position: relative; display: block; overflow: hidden; border-bottom: 1px solid var(--line); background: #0d0f12; }
+.review .shot img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; object-position: top left; transition: transform .3s ease, filter .3s ease; }
+.review .shot:hover img { transform: scale(1.018); filter: saturate(1.03); }
+.review .shot .open {
+  position: absolute; right: 9px; bottom: 9px;
+  padding: 5px 7px; border: 1px solid rgba(255,255,255,.32);
+  background: rgba(10,12,14,.68); color: #f1f3eb;
+  font-family: var(--mono); font-size: 7.5px; letter-spacing: .05em;
+  opacity: 0; transform: translateY(3px); transition: opacity .18s ease, transform .18s ease;
+  backdrop-filter: blur(4px);
+}
+.review .shot:hover .open { opacity: 1; transform: translateY(0); }
+.review .dir-body { display: flex; flex-direction: column; flex: 1; padding: 14px 15px 12px; }
+.review .dir-top { display: flex; align-items: center; gap: 7px; min-height: 18px; }
+.review .dir-num { color: var(--red); font-family: var(--mono); font-size: 9px; }
+.review .dir-rec { padding: 2px 6px; background: var(--red); color: #fff7ef; font-family: var(--mono); font-size: 7px; letter-spacing: .07em; }
+.review .dir-name { margin: 8px 0 0; color: var(--ink); font-family: var(--sans); font-size: 16px; line-height: 1.2; font-weight: 700; letter-spacing: -.02em; }
+.review .dir-name span { margin-left: 5px; color: var(--muted); font-family: var(--serif); font-size: 14px; font-weight: 600; letter-spacing: 0; }
+.review .dir-lead { margin: 8px 0 0; color: var(--ink-2); font-family: var(--serif); font-size: 12.5px; font-weight: 600; line-height: 1.55; }
+.review .dir-desc { margin: 6px 0 0; color: var(--muted); font-size: 9.5px; line-height: 1.62; }
+.review .dir-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; }
+.review .dir-tags span { padding: 2px 5px; border: 1px solid var(--line); color: var(--muted); font-size: 8px; }
+.review .dir-foot { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: auto; padding-top: 12px; }
+.review .pros, .review .cons { padding-top: 7px; border-top: 1px solid var(--line); }
+.review .pros b, .review .cons b { display: block; font-size: 8px; font-weight: 600; letter-spacing: .02em; }
+.review .pros b { color: var(--green); }
+.review .cons b { color: var(--red-deep); }
+.review .pros p, .review .cons p { margin: 4px 0 0; color: var(--muted); font-size: 8.5px; line-height: 1.5; }
+.review .best-for { margin-top: 8px; color: var(--dim); font-family: var(--mono); font-size: 7.5px; letter-spacing: .02em; }
+.review .decision-card {
+  display: grid; grid-template-columns: 1.12fr .88fr; gap: 28px;
+  min-width: 0; margin-top: 24px;
+  padding: 25px 28px; background: var(--dark); color: #eef1e9;
+  border: 1px solid #272a27; box-shadow: 4px 4px 0 rgba(80,67,49,.1);
+}
+.review .decision-card .label { color: #d15a4e; font-family: var(--mono); font-size: 8px; letter-spacing: .15em; }
+.review .decision-card h3 { margin: 9px 0 0; font-family: var(--serif); font-size: 27px; line-height: 1.18; font-weight: 900; letter-spacing: -.02em; }
+.review .decision-card p { max-width: 510px; margin: 10px 0 0; color: #9da497; font-size: 9.5px; line-height: 1.7; }
+.review .decision-card .decision-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 0; }
+.review .decision-list div { padding-top: 9px; border-top: 1px solid #333732; }
+.review .decision-list b { display: block; color: #cbd2c6; font-size: 9px; font-weight: 500; }
+.review .decision-list span { display: block; margin-top: 3px; color: #727a70; font-size: 8px; line-height: 1.5; }
+.review .decision-card a { margin-top: 18px; display: inline-flex; align-items: center; gap: 6px; width: fit-content; color: #f4c6bc; font-size: 9px; }
+.review .decision-card a:hover { color: #fff; }
+.review .compare-panel { border: 1px solid var(--line); background: var(--surface); box-shadow: 4px 4px 0 rgba(80,67,49,.07); overflow-x: auto; }
+.review table { width: 100%; border-collapse: collapse; min-width: 760px; }
+.review th, .review td { padding: 11px 13px; border-bottom: 1px solid #eae4d8; text-align: center; vertical-align: middle; }
+.review thead th { background: var(--paper-2); color: var(--muted); font-family: var(--mono); font-size: 8px; letter-spacing: .06em; font-weight: 400; }
+.review thead th:first-child { text-align: left; }
+.review tbody tr:last-child td { border-bottom: 0; }
+.review td:first-child, .review th:first-child { text-align: left; }
+.review tbody td:first-child { color: var(--ink-2); font-size: 10px; font-weight: 500; }
+.review tbody tr:hover { background: #faf7f0; }
+.review .score { display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
+.review .bars { display: inline-flex; gap: 2px; }
+.review .bars i { width: 8px; height: 5px; background: #e0d9cc; }
+.review .bars i.on { background: var(--red); }
+.review .score b { color: var(--muted); font-family: var(--mono); font-size: 8px; font-weight: 400; }
+.review .table-note { padding: 8px 13px; border-top: 1px solid var(--line); color: var(--dim); font-size: 8px; }
+.review .recommend {
+  display: grid; grid-template-columns: 1.1fr .9fr; gap: 0; margin-top: 38px;
+  border: 1px solid var(--line); background: var(--surface); box-shadow: 5px 5px 0 rgba(80,67,49,.08);
+}
+.review .recommend-main { padding: 28px 30px; }
+.review .recommend-main .label { color: var(--red); font-family: var(--mono); font-size: 8px; letter-spacing: .13em; }
+.review .recommend-main h2 { margin: 9px 0 0; font-family: var(--serif); font-size: 31px; font-weight: 900; letter-spacing: -.02em; }
+.review .recommend-main h2 span { color: var(--red); }
+.review .recommend-main p { margin: 11px 0 0; color: var(--muted); font-size: 10px; line-height: 1.8; }
+.review .recommend-main .callout { margin-top: 15px; padding: 12px 14px; border-left: 2px solid var(--red); background: var(--paper-2); color: var(--ink-2); font-family: var(--serif); font-size: 12px; font-weight: 600; line-height: 1.6; }
+.review .questions { border-left: 1px solid var(--line); background: var(--paper-2); padding: 28px 26px; }
+.review .questions .label { color: var(--olive); font-family: var(--mono); font-size: 8px; letter-spacing: .13em; }
+.review .questions h3 { margin: 9px 0 4px; font-family: var(--serif); font-size: 20px; font-weight: 800; }
+.review .question { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.review .question:last-child { border-bottom: 0; }
+.review .question b { display: block; color: var(--ink-2); font-size: 10px; font-weight: 600; }
+.review .question p { margin: 4px 0 0; color: var(--muted); font-size: 9px; line-height: 1.6; }
+.review .next { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; margin-top: 38px; }
+.review .next-step { padding-top: 12px; border-top: 1px solid var(--line-strong); }
+.review .next-step .n { color: var(--red); font-family: var(--mono); font-size: 8px; }
+.review .next-step b { display: block; margin-top: 7px; color: var(--ink-2); font-size: 10px; font-weight: 600; }
+.review .next-step p { margin: 5px 0 0; color: var(--muted); font-size: 9px; line-height: 1.6; }
+.review .footer { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-top: 50px; padding: 16px 0 52px; border-top: 1px solid var(--line); color: var(--dim); font-family: var(--mono); font-size: 8px; }
+.review .footer a { color: var(--red-deep); }
+.review .footer a:hover { color: var(--red); }
+@media (max-width: 980px) {
+  .review .wrap { width: min(100% - 36px, 860px); }
+  .review .hero { grid-template-columns: 1fr; gap: 30px; }
+  .review .hero-meta { max-width: 440px; }
+  .review .baseline { grid-template-columns: 1fr; }
+  .review .dir-grid { grid-template-columns: 1fr; }
+  .review .dir-card, .review .dir-card.wide { grid-column: span 1; grid-template-columns: 1fr; }
+  .review .dir-card.wide .shot { border-right: 0; border-bottom: 1px solid var(--line); }
+  .review .decision-card { grid-template-columns: 1fr; }
+  .review .recommend { grid-template-columns: 1fr; }
+  .review .questions { border-left: 0; border-top: 1px solid var(--line); }
+  .review .next { grid-template-columns: repeat(2, 1fr); }
+}
+</style>
+</head>
+<body class="review">
+
+<div class="top-strip">
+  <div class="top-brand"><img src="assets/app-icon.png" alt=""><b>L4D2 MOD MANAGER</b> <span>/ VISUAL REVIEW</span></div>
+  <nav class="nav"><a href="#baseline">现状</a><a href="#directions">五个方向</a><a href="#compare">对比</a><a href="#next">下一步</a></nav>
+  <div class="right"><span>DESIGN REVIEW 01</span><b>2026.11.18</b></div>
+</div>
+<main class="wrap">
+  <header class="hero">
+    <div>
+      <div class="kicker">VISUAL REFACTOR / 视觉重构</div>
+      <h1>把军械库，<br><em>重新做一遍。</em></h1>
+      <p>五个方向，同一份真实内容。先确定气质与信息架构，再讨论 Qt 重绘还是 WebView。所有样稿都只改界面，不动业务逻辑。</p>
+    </div>
+    <aside class="hero-meta">
+      <div class="meta-row"><span>SCOPE</span><b>主界面 · 1440 × 900</b></div>
+      <div class="meta-row"><span>BASELINE</span><b>v1.2.1 / PySide6</b></div>
+      <div class="meta-row"><span>DELIVERY</span><b>5 个 HTML 原型 + 5 张截图</b></div>
+      <div class="meta-row"><span>CHANGED</span><b>0 行业务代码</b></div>
+      <div class="meta-note">原型支持卡片选择、开关、导航高亮与 Ctrl + K。数据为样稿内容，缩略图取自当前版本截图。</div>
+    </aside>
+  </header>
+
+  <section class="section" id="baseline">
+    <div class="section-head">
+      <div><div class="label">00 / BASELINE</div><h2>先看清现在的问题</h2></div>
+      <p>不是“换个黑色皮肤”。当前界面的主要阻力在层级、主次和状态反馈，而不是颜色本身。</p>
+    </div>
+    <div class="baseline">
+      <figure class="baseline-figure">
+        <img src="assets/current-ui.webp" alt="当前版本主界面">
+        <figcaption><span>当前截图 / <b>v1.2.1</b></span><span>1276 × 936</span></figcaption>
+      </figure>
+      <div class="findings">
+        <div class="finding"><span class="n">01</span><div><b>三级导航挤在左侧</b><p>级别、分类、物品三列并排，主卡片区被压到不足 900px，卡片只能做小。</p></div></div>
+        <div class="finding"><span class="n">02</span><div><b>启用状态太轻</b><p>绿点和细勾选不足以支撑“一键切换”这个核心动作，用户需要二次确认。</p></div></div>
+        <div class="finding"><span class="n">03</span><div><b>工具条所有动作同权</b><p>搜索、排序、刷新、导入、工坊、启动挤在一行，最常用的“启动”没有真正的视觉优先。</p></div></div>
+        <div class="finding"><span class="n">04</span><div><b>冲突结果藏在提示里</b><p>同组互斥的结果主要靠状态栏和操作后提示，用户无法在操作前预见会影响哪些模组。</p></div></div>
+      </div>
+    </div>
+    <div class="note-strip"><b>保留：</b>本地库优先、模组封面、同组互斥、一键管理、工坊下载、设置与回收站；<b>重做：</b>导航层级、卡片信息密度、详情/冲突呈现。</div>
+  </section>
+
+  <section class="section" id="directions">
+    <div class="section-head">
+      <div><div class="label">01–05 / DIRECTIONS</div><h2>五个方向，不是五套皮肤</h2></div>
+      <p>每版都重新安排了信息优先级：谁先出现、详情放在哪、冲突如何被看见。点击截图可打开可交互原型。</p>
+    </div>
+    <div class="dir-grid">
+      
+<article class="dir-card">
+  <a class="shot" href="v1.html" target="_blank" rel="noreferrer" aria-label="打开 BLACKSITE 原型">
+    <img src="screenshots/v1.png" alt="BLACKSITE 主界面样稿">
+    <span class="open">OPEN PROTOTYPE ↗</span>
+  </a>
+  <div class="dir-body">
+    <div class="dir-top"><span class="dir-num">01</span><span class="dir-rec">我的建议</span></div>
+    <h3 class="dir-name">BLACKSITE <span>战术档案</span></h3>
+    <p class="dir-lead">保留末世军械库的气质，把它做成一台真正的本地 mod 控制台。</p>
+    <p class="dir-desc">石墨黑与信号绿取代高饱和的末世绿；四区结构把“导航、筛选、内容、详情”分开。选中模组后，详情与同组互斥关系就地展开。</p>
+    <div class="dir-tags"><span>石墨黑</span><span>信号绿</span><span>发丝线</span><span>常驻详情</span></div>
+    <div class="dir-foot">
+      <div class="pros"><b>强项</b><p>品牌延续性最强；状态与冲突可见；高频操作有工作台感。</p></div>
+      <div class="cons"><b>代价</b><p>四区布局，1100px 窗口下需要折叠详情；QSS 需要精细控制。</p></div>
+    </div>
+    <div class="best-for">BEST FOR / 长期用户 / 高密度管理</div>
+  </div>
+</article>
+
+<article class="dir-card">
+  <a class="shot" href="v2.html" target="_blank" rel="noreferrer" aria-label="打开 SAFEHOUSE 原型">
+    <img src="screenshots/v2.png" alt="SAFEHOUSE 主界面样稿">
+    <span class="open">OPEN PROTOTYPE ↗</span>
+  </a>
+  <div class="dir-body">
+    <div class="dir-top"><span class="dir-num">02</span></div>
+    <h3 class="dir-name">SAFEHOUSE <span>安全屋</span></h3>
+    <p class="dir-lead">像翻一本模组档案册，而不是打开一台机器。</p>
+    <p class="dir-desc">米纸色、油墨黑与安全红；大标题用衬线写，卡片有纸张与硬阴影。分类导航退到侧栏，物品 chips 让“同一个 Ellis”变成一次轻松的翻页。</p>
+    <div class="dir-tags"><span>米纸</span><span>衬线</span><span>安全红</span><span>纸感</span></div>
+    <div class="dir-foot">
+      <div class="pros"><b>强项</b><p>和普通工具差异最大；阅读性最好；截图传播性最好。</p></div>
+      <div class="cons"><b>代价</b><p>浅色在夜间游戏场景可能刺眼；纸纹和硬阴影在 Qt 里最容易做“假”。</p></div>
+    </div>
+    <div class="best-for">BEST FOR / 轻度收藏用户 / 想让产品更有人味</div>
+  </div>
+</article>
+
+<article class="dir-card">
+  <a class="shot" href="v3.html" target="_blank" rel="noreferrer" aria-label="打开 WORKSHOP 原型">
+    <img src="screenshots/v3.png" alt="WORKSHOP 主界面样稿">
+    <span class="open">OPEN PROTOTYPE ↗</span>
+  </a>
+  <div class="dir-body">
+    <div class="dir-top"><span class="dir-num">03</span></div>
+    <h3 class="dir-name">WORKSHOP <span>工坊中枢</span></h3>
+    <p class="dir-lead">Steam 用户零学习成本的入口，下载和同步拥有天然的位置。</p>
+    <p class="dir-desc">深海军蓝与亮青；顶部全局导航，右侧常驻同步中心。Hero 展示当前外观合集，下载队列、订阅检查和本地概况彼此不抢戏。</p>
+    <div class="dir-tags"><span>海军蓝</span><span>工坊</span><span>同步中心</span><span>大 Hero</span></div>
+    <div class="dir-foot">
+      <div class="pros"><b>强项</b><p>熟悉、稳妥；工坊下载是主角；开发成本相对可控。</p></div>
+      <div class="cons"><b>代价</b><p>品牌个性最弱，容易像 Steam 的皮肤；右侧栏占走 332px。</p></div>
+    </div>
+    <div class="best-for">BEST FOR / 工坊重度用户 / 下载为主</div>
+  </div>
+</article>
+
+<article class="dir-card">
+  <a class="shot" href="v4.html" target="_blank" rel="noreferrer" aria-label="打开 LOADOUT LAB 原型">
+    <img src="screenshots/v4.png" alt="LOADOUT LAB 主界面样稿">
+    <span class="open">OPEN PROTOTYPE ↗</span>
+  </a>
+  <div class="dir-body">
+    <div class="dir-top"><span class="dir-num">04</span></div>
+    <h3 class="dir-name">LOADOUT LAB <span>配装台</span></h3>
+    <p class="dir-lead">从“管理模组”升级为“管理今晚怎么玩”。</p>
+    <p class="dir-desc">顶部是四个配装槽位，下面是模组库和冲突中心。预设可以一键切换整套外观；互斥组不再藏在提示里，而是配装的一部分。</p>
+    <div class="dir-tags"><span>石墨蓝</span><span>薄荷绿</span><span>配装槽</span><span>预设</span></div>
+    <div class="dir-foot">
+      <div class="pros"><b>强项</b><p>把互斥与一键切换讲得最清楚；任务导向；天然支持场景预设。</p></div>
+      <div class="cons"><b>代价</b><p>信息架构改动最大；需要新增配装/预设数据模型；小屏更紧。</p></div>
+    </div>
+    <div class="best-for">BEST FOR / 高频切换玩法 / 愿意升级产品概念</div>
+  </div>
+</article>
+
+<article class="dir-card wide">
+  <a class="shot" href="v5.html" target="_blank" rel="noreferrer" aria-label="打开 INDEX 原型">
+    <img src="screenshots/v5.png" alt="INDEX 主界面样稿">
+    <span class="open">OPEN PROTOTYPE ↗</span>
+  </a>
+  <div class="dir-body">
+    <div class="dir-top"><span class="dir-num">05</span></div>
+    <h3 class="dir-name">INDEX <span>索引</span></h3>
+    <p class="dir-lead">给 100+ 模组库的一张工作台。</p>
+    <p class="dir-desc">冷白、墨黑、品牌红；左侧分类，中间数据表，右侧详情。支持多选、排序、批量操作和键盘流，封面被压缩成一行缩略图，把空间还给比较。</p>
+    <div class="dir-tags"><span>冷白</span><span>数据表</span><span>多选</span><span>键盘流</span></div>
+    <div class="dir-foot">
+      <div class="pros"><b>强项</b><p>扫读与批量操作最强；浅色更耐看；最容易扩到 300+ 模组。</p></div>
+      <div class="cons"><b>代价</b><p>游戏氛围弱；封面不再承担识别；长列表需要虚拟化。</p></div>
+    </div>
+    <div class="best-for">BEST FOR / 收藏很多 / 重整理与清理</div>
+  </div>
+</article>
+    </div>
+    <aside class="decision-card">
+      <div>
+        <div class="label">DECISION AHEAD / 不是第六个方案</div>
+        <h3>你选气质，<br>我补实现。</h3>
+        <p>这五版都能落地，但成本与终态不同。先确认视觉方向和信息架构，再谈 Qt 原生重绘、WebView 或 Tauri；现在换栈会把视觉评审变成技术赌注。</p>
+      </div>
+      <div>
+        <div class="decision-list">
+          <div><b>先定方向</b><span>选择 1 个主方案，指出想保留的局部。</span></div>
+          <div><b>再补状态</b><span>补齐设置、下载、导入、空态与错误态。</span></div>
+          <div><b>最后选型</b><span>用真实复杂度评估 Qt / Web 方案。</span></div>
+        </div>
+        <a href="#compare">看相对评估 <svg class="i" aria-hidden="true"><use href="#i-arrow-right"></use></svg></a>
+      </div>
+    </aside>
+  </section>
+
+  <section class="section" id="compare">
+    <div class="section-head">
+      <div><div class="label">COMPARISON / 相对评估</div><h2>把取舍放在一张表上</h2></div>
+      <p>没有全面胜出的方案。这里评估的是“作为当前产品的一次重构”，不是抽象的视觉排名。</p>
+    </div>
+    
+<div class="compare-panel">
+  <table>
+    <thead><tr><th>评估维度</th><th>01 BLACKSITE</th><th>02 SAFEHOUSE</th><th>03 WORKSHOP</th><th>04 LOADOUT LAB</th><th>05 INDEX</th></tr></thead>
+    <tbody><tr><td>品牌辨识度</td><td><span class="score"><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span><b>5</b></span></td><td><span class="score"><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span><b>4</b></span></td><td><span class="score"><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span><b>3</b></span></td><td><span class="score"><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span><b>4</b></span></td><td><span class="score"><span class="bars"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span><b>2</b></span></td></tr><tr><td>浏览效率</td><td><span class="score"><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span><b>4</b></span></td><td><span class="score"><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span><b>3</b></span></td><td><span class="score"><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span><b>4</b></span></td><td><span class="score"><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span><b>3</b></span></td><td><span class="score"><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span><b>5</b></span></td></tr><tr><td>状态透明</td><td><span class="score"><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span><b>5</b></span></td><td><span class="score"><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span><b>3</b></span></td><td><span class="score"><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span><b>3</b></span></td><td><span class="score"><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span><b>5</b></span></td><td><span class="score"><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span><b>4</b></span></td></tr><tr><td>工坊体验</td><td><span class="score"><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span><b>3</b></span></td><td><span class="score"><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span><b>3</b></span></td><td><span class="score"><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span><b>5</b></span></td><td><span class="score"><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span><b>3</b></span></td><td><span class="score"><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span><b>3</b></span></td></tr><tr><td>扩展能力</td><td><span class="score"><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span><b>4</b></span></td><td><span class="score"><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span><b>3</b></span></td><td><span class="score"><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span><b>4</b></span></td><td><span class="score"><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span><b>3</b></span></td><td><span class="score"><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span><b>5</b></span></td></tr><tr><td>实现成本（越高越轻）</td><td><span class="score"><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span><b>3</b></span></td><td><span class="score"><span class="bars"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span><b>2</b></span></td><td><span class="score"><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span><b>4</b></span></td><td><span class="score"><span class="bars"><i class="on"></i><i></i><i></i><i></i><i></i></span><b>1</b></span></td><td><span class="score"><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span><b>4</b></span></td></tr></tbody>
+  </table>
+  <div class="table-note">1–5 为相对评估，用来帮助取舍，不是技术结论。实现成本一行的“越高”代表越容易落地。</div>
+</div>
+  </section>
+
+  <section class="recommend">
+    <div class="recommend-main">
+      <div class="label">MY RECOMMENDATION / 我的一票</div>
+      <h2>首选 <span>01 BLACKSITE</span>。</h2>
+      <p>它最像这条产品线本来应该长成的样子：保留末世与军械库的气质，却把可读性、层级、详情和冲突都拉回到工作流里。对现有用户迁移成本最低，也最适合继续叠加工坊、下载和合集。</p>
+      <div class="callout">如果“快速上手”和工坊下载比品牌气质更重要，选 03；如果模组量会很快到 300+，05 的索引能力值得优先。</div>
+    </div>
+    <div class="questions">
+      <div class="label">NEED YOUR CALL / 需要你拍板</div>
+      <h3>三个问题</h3>
+      <div class="question"><b>01. 你更想要哪种气质？</b><p>末日军械库的控制台，还是更像日常软件的档案册/工具？</p></div>
+      <div class="question"><b>02. 模组量会到 300+ 吗？</b><p>如果会，V5 的表格和批量操作应该成为主结构，而不是附属视图。</p></div>
+      <div class="question"><b>03. 要不要把“配装/预设”提上路线？</b><p>如果愿意增加数据模型，V4 能把互斥规则变成真正的卖点。</p></div>
+    </div>
+  </section>
+
+  <section class="section" id="next">
+    <div class="section-head">
+      <div><div class="label">NEXT / 下一步</div><h2>选定方向之后</h2></div>
+      <p>本轮交付停在视觉与信息架构；下面的顺序可以避免在技术选型上过早下注。</p>
+    </div>
+    <div class="next">
+      <div class="next-step"><div class="n">STEP 01</div><b>你选一个主方向</b><p>直接说编号，或指出“01 的骨架 + 05 的表格”这类组合；也可以只保留某个局部。</p></div>
+      <div class="next-step"><div class="n">STEP 02</div><b>补齐状态覆盖</b><p>设置、详情、下载、压缩包导入、迁移、空态、错误态；统一间距、字号、控件状态与快捷键。</p></div>
+      <div class="next-step"><div class="n">STEP 03</div><b>技术实现评估</b><p>在 PySide6 原生重绘、QWebEngine、Tauri 之间用真实复杂度比较；明确动画、字体、打包与体积成本。</p></div>
+      <div class="next-step"><div class="n">STEP 04</div><b>增量落地</b><p>不动业务逻辑，先换壳和主界面；再拆组件，最后处理动效与响应式。</p></div>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <span>L4D2 MOD MANAGER · VISUAL DIRECTIONS · 2026.11.18</span>
+    <span><a href="assets/overview.png" target="_blank">五版总览图</a> · <a href="v1.html" target="_blank">01</a> · <a href="v2.html" target="_blank">02</a> · <a href="v3.html" target="_blank">03</a> · <a href="v4.html" target="_blank">04</a> · <a href="v5.html" target="_blank">05</a></span>
+  </footer>
+</main>
+
+</body>
+</html>

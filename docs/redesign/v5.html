@@ -1,0 +1,605 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>05 INDEX / 索引 · L4D2 Mod Manager</title>
+<link rel="stylesheet" href="assets/base.css">
+<style>
+:root {
+  --canvas: #f5f6f8;
+  --surface: #ffffff;
+  --surface-2: #fafbfc;
+  --line: #e4e7ec;
+  --line-strong: #d0d5dd;
+  --ink: #14171c;
+  --ink-2: #344054;
+  --muted: #667085;
+  --dim: #98a2b3;
+  --faint: #c7ced8;
+  --red: #d92d20;
+  --red-deep: #b42318;
+  --red-soft: #fef3f2;
+  --green: #067647;
+  --green-soft: #ecfdf3;
+  --blue: #175cd3;
+  --focus: #d92d20;
+  --selection: rgba(217, 45, 32, .12);
+}
+body.v5 {
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: "Segoe UI Variable", "Segoe UI", "Noto Sans SC", "Microsoft YaHei UI", sans-serif;
+  font-size: 12px;
+}
+.v5 .app { height: 100vh; min-width: 1180px; display: flex; flex-direction: column; }
+.v5 .topbar {
+  height: 58px; flex: none;
+  display: flex; align-items: center; gap: 18px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.v5 .brand { width: 218px; flex: none; display: flex; align-items: center; gap: 9px; }
+.v5 .brand img { width: 25px; height: 25px; filter: grayscale(.35) contrast(1.1); }
+.v5 .brand-name { color: var(--ink); font-family: "Bahnschrift SemiBold", "Segoe UI", sans-serif; font-size: 14px; letter-spacing: .08em; line-height: 1; }
+.v5 .brand-sub { margin-top: 4px; color: var(--dim); font-family: "Cascadia Mono", monospace; font-size: 7.5px; letter-spacing: .13em; }
+.v5 .top-search {
+  width: min(440px, 38vw); height: 33px;
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong); border-radius: 6px;
+  background: var(--surface-2); color: var(--dim);
+}
+.v5 .top-search:focus-within { border-color: var(--ink-2); background: #fff; box-shadow: 0 0 0 3px rgba(20,23,28,.05); }
+.v5 .top-search input { flex: 1 1 auto; width: auto; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: 11px; }
+.v5 .top-search input::placeholder { color: var(--dim); }
+.v5 .top-search .i { width: 15px; height: 15px; }
+.v5 .top-search .kbd { margin-left: auto; opacity: .45; }
+.v5 .top-spacer { flex: 1; }
+.v5 .top-status { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 9.5px; white-space: nowrap; }
+.v5 .top-status i { width: 6px; height: 6px; border-radius: 50%; background: #12b76a; box-shadow: 0 0 0 3px rgba(18,183,106,.1); }
+.v5 .top-divider { width: 1px; height: 20px; background: var(--line); }
+.v5 .icon-button { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 5px; color: var(--muted); }
+.v5 .icon-button:hover { border-color: var(--line); background: var(--surface-2); color: var(--ink); }
+.v5 .top-button {
+  height: 31px; display: inline-flex; align-items: center; gap: 6px;
+  padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 5px;
+  background: #fff; color: var(--ink-2); font-size: 10px; white-space: nowrap;
+}
+.v5 .top-button:hover { border-color: #98a2b3; background: var(--surface-2); }
+.v5 .top-button .i { width: 13px; height: 13px; }
+.v5 .top-button.primary { border-color: var(--red); background: var(--red); color: #fff; font-weight: 650; }
+.v5 .top-button.primary:hover { background: var(--red-deep); border-color: var(--red-deep); }
+.v5 .body { min-height: 0; flex: 1; display: flex; }
+.v5 .sidebar {
+  width: 218px; flex: none;
+  padding: 17px 11px 12px;
+  border-right: 1px solid var(--line);
+  background: var(--surface-2);
+  display: flex; flex-direction: column;
+}
+.v5 .side-label { margin: 0 9px 7px; color: var(--dim); font-size: 8.5px; letter-spacing: .08em; font-weight: 600; text-transform: uppercase; }
+.v5 .side-nav { display: flex; flex-direction: column; gap: 1px; }
+.v5 .side-link {
+  position: relative;
+  height: 32px; display: flex; align-items: center; gap: 9px;
+  padding: 0 9px; border-radius: 5px;
+  color: var(--muted); font-size: 10.5px; text-align: left;
+}
+.v5 .side-link .i { width: 15px; height: 15px; color: var(--dim); }
+.v5 .side-link .n { margin-left: auto; color: var(--dim); font-family: "Cascadia Mono", monospace; font-size: 8px; }
+.v5 .side-link:hover { background: #f0f2f5; color: var(--ink); }
+.v5 .side-link.active { background: #eef0f3; color: var(--ink); font-weight: 600; }
+.v5 .side-link.active::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 2px; border-radius: 2px; background: var(--red); }
+.v5 .side-link.active .i { color: var(--red); }
+.v5 .side-link.active .n { color: var(--ink-2); }
+.v5 .side-gap { height: 16px; }
+.v5 .side-divider { height: 1px; margin: 12px 9px; background: var(--line); }
+.v5 .side-list { display: flex; flex-direction: column; gap: 1px; }
+.v5 .side-list button {
+  height: 28px; display: flex; align-items: center; gap: 8px;
+  padding: 0 9px; border-radius: 5px; color: var(--muted); font-size: 9.5px; text-align: left;
+}
+.v5 .side-list button:hover { background: #f0f2f5; color: var(--ink); }
+.v5 .side-list i { width: 5px; height: 5px; border-radius: 50%; background: var(--faint); }
+.v5 .side-list button:nth-child(1) i { background: #12b76a; }
+.v5 .side-list button:nth-child(2) i { background: #f79009; }
+.v5 .side-list button:nth-child(3) i { background: #7a5af8; }
+.v5 .side-list button:nth-child(4) i { background: var(--red); }
+.v5 .side-list span:last-child { margin-left: auto; color: var(--dim); font-family: "Cascadia Mono", monospace; font-size: 8px; }
+.v5 .side-spacer { flex: 1; }
+.v5 .health-card { margin: 0 2px 12px; padding: 10px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+.v5 .health-head { display: flex; align-items: center; gap: 6px; color: var(--ink-2); font-size: 9px; font-weight: 600; }
+.v5 .health-head .i { width: 13px; height: 13px; color: var(--green); }
+.v5 .health-copy { margin-top: 5px; color: var(--muted); font-size: 8.5px; line-height: 1.5; }
+.v5 .health-meter { height: 3px; margin-top: 8px; border-radius: 3px; background: #eaecf0; overflow: hidden; }
+.v5 .health-meter i { display: block; width: 86%; height: 100%; background: #12b76a; border-radius: inherit; }
+.v5 .side-foot { display: flex; align-items: center; justify-content: space-between; padding: 0 9px; color: var(--dim); font-family: "Cascadia Mono", monospace; font-size: 7.5px; }
+.v5 .main { min-width: 0; flex: 1; padding: 20px 20px 0; display: flex; flex-direction: column; }
+.v5 .page-head { flex: none; display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
+.v5 .crumb { display: flex; align-items: center; gap: 6px; color: var(--dim); font-size: 9px; }
+.v5 .crumb .i { width: 10px; height: 10px; }
+.v5 .crumb b { color: var(--ink-2); font-weight: 500; }
+.v5 .page-head h1 { margin: 8px 0 0; color: var(--ink); font-size: 25px; line-height: 1.15; font-weight: 650; letter-spacing: -.035em; }
+.v5 .page-head h1 span { margin-left: 7px; color: var(--dim); font-family: "Cascadia Mono", monospace; font-size: 10px; font-weight: 400; letter-spacing: 0; }
+.v5 .page-head p { margin: 6px 0 0; color: var(--muted); font-size: 9.5px; }
+.v5 .page-head p b { color: var(--ink-2); font-weight: 600; }
+.v5 .page-actions { display: flex; align-items: center; gap: 7px; padding-bottom: 2px; }
+.v5 .mini-button { height: 29px; display: inline-flex; align-items: center; gap: 6px; padding: 0 9px; border: 1px solid var(--line-strong); border-radius: 5px; background: #fff; color: var(--muted); font-size: 9.5px; }
+.v5 .mini-button:hover { border-color: #98a2b3; color: var(--ink); }
+.v5 .mini-button .i { width: 13px; height: 13px; }
+.v5 .filterbar { flex: none; display: flex; align-items: center; gap: 5px; min-height: 45px; margin-top: 8px; border-bottom: 1px solid var(--line); }
+.v5 .filter-chip { height: 26px; padding: 0 9px; display: inline-flex; align-items: center; gap: 5px; border: 1px solid transparent; border-radius: 4px; color: var(--muted); font-size: 9.5px; }
+.v5 .filter-chip span { color: var(--dim); font-family: "Cascadia Mono", monospace; font-size: 8px; }
+.v5 .filter-chip:hover { background: #eceff3; color: var(--ink); }
+.v5 .filter-chip.active { border-color: var(--line-strong); background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgba(16,24,40,.04); }
+.v5 .filter-chip.active span { color: var(--ink-2); }
+.v5 .filter-spacer { flex: 1; }
+.v5 .filter-select { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 9.5px; }
+.v5 .filter-select .i { width: 11px; height: 11px; }
+.v5 .table-wrap { min-height: 0; flex: 1; display: flex; flex-direction: column; margin-top: 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); overflow: hidden; box-shadow: 0 1px 2px rgba(16,24,40,.03); }
+.v5 .table-head {
+  flex: none; display: grid; grid-template-columns: 22px minmax(220px, 1fr) 62px 64px 58px 76px 26px;
+  align-items: center; gap: 8px; min-height: 31px; padding: 0 10px;
+  border-bottom: 1px solid var(--line); background: var(--surface-2);
+  color: var(--dim); font-size: 8px; letter-spacing: .03em;
+}
+.v5 .table-head .chk { width: 13px; height: 13px; border: 1px solid var(--line-strong); border-radius: 3px; background: #fff; }
+.v5 .table-body { min-height: 0; flex: 1; overflow-y: auto; }
+.v5 .table-row {
+  display: grid; grid-template-columns: 22px minmax(220px, 1fr) 62px 64px 58px 76px 26px;
+  align-items: center; gap: 8px; min-height: 49px; padding: 0 10px;
+  border-bottom: 1px solid #edf0f3; cursor: pointer;
+  transition: background .12s ease;
+}
+.v5 .table-row:last-child { border-bottom: 0; }
+.v5 .table-row:hover { background: #f8f9fb; }
+.v5 .table-row.is-selected { background: #fff7f6; box-shadow: inset 2px 0 0 var(--red); }
+.v5 .row-check { display: grid; place-items: center; }
+.v5 .row-check input { width: 13px; height: 13px; margin: 0; accent-color: var(--red); cursor: pointer; }
+.v5 .row-name { min-width: 0; display: flex; align-items: center; gap: 10px; }
+.v5 .row-art { width: 44px; height: 30px; flex: none; overflow: hidden; border: 1px solid var(--line); border-radius: 3px; background: #f2f4f7; }
+.v5 .row-art img { width: 100%; height: 100%; object-fit: cover; filter: saturate(.78); }
+.v5 .row-text { min-width: 0; }
+.v5 .row-text b { display: block; color: var(--ink-2); font-size: 11px; font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.v5 .row-text small { display: block; margin-top: 2px; color: var(--muted); font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.v5 .type-pill { display: inline-flex; align-items: center; width: fit-content; padding: 2px 6px; border-radius: 3px; background: #f2f4f7; color: var(--muted); font-size: 8px; }
+.v5 .row-size, .v5 .row-date { color: #5f6673; font-family: "Cascadia Mono", monospace; font-size: 8px; white-space: nowrap; }
+.v5 .row-state { display: inline-flex; align-items: center; gap: 5px; color: var(--dim); font-size: 8px; white-space: nowrap; }
+.v5 .row-state i { width: 5px; height: 5px; border-radius: 50%; background: #b9c0ca; }
+.v5 .row-state.on { color: var(--green); }
+.v5 .row-state.on i { background: #12b76a; box-shadow: 0 0 0 3px rgba(18,183,106,.09); }
+.v5 .switch {
+  position: relative; width: 27px; height: 15px; flex: none;
+  border: 1px solid #cfd5de; border-radius: 8px; background: #eef1f4;
+}
+.v5 .switch .switch-knob { position: absolute; top: 2px; left: 2px; width: 9px; height: 9px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(16,24,40,.18); transition: transform .16s ease, background .16s ease; }
+.v5 .switch.on { border-color: var(--green); background: var(--green); }
+.v5 .switch.on .switch-knob { transform: translateX(12px); }
+.v5 .table-foot { flex: none; min-height: 31px; display: flex; align-items: center; gap: 10px; padding: 0 11px; border-top: 1px solid var(--line); background: var(--surface-2); color: var(--dim); font-size: 8px; }
+.v5 .table-foot .spacer { flex: 1; }
+.v5 .table-foot b { color: var(--ink-2); font-weight: 600; }
+.v5 .table-foot button { color: var(--red); font-size: 8px; }
+.v5 .table-foot button:hover { color: var(--red-deep); }
+.v5 .preview {
+  width: 344px; flex: none;
+  margin: 20px 20px 0 0;
+  border: 1px solid var(--line); border-radius: 7px;
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(16,24,40,.03);
+  padding: 15px;
+  overflow-y: auto;
+  display: flex; flex-direction: column; gap: 13px;
+}
+.v5 .preview-head { display: flex; align-items: center; justify-content: space-between; }
+.v5 .preview-head span { color: var(--dim); font-size: 8px; letter-spacing: .08em; font-weight: 600; }
+.v5 .preview-head button { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 4px; color: var(--dim); }
+.v5 .preview-head button:hover { background: var(--surface-2); color: var(--ink); }
+.v5 .preview-art { position: relative; aspect-ratio: 16 / 9.2; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; background: #f2f4f7; }
+.v5 .preview-art img { width: 100%; height: 100%; object-fit: cover; filter: saturate(.84) contrast(1.02); }
+.v5 .preview-art .preview-label { position: absolute; left: 8px; bottom: 7px; padding: 2px 5px; border-radius: 2px; background: rgba(20,23,28,.62); color: #fff; font-family: "Cascadia Mono", monospace; font-size: 7px; letter-spacing: .07em; }
+.v5 .preview-title { margin: 0; color: var(--ink); font-size: 17px; line-height: 1.3; font-weight: 650; letter-spacing: -.02em; }
+.v5 .preview-meta { margin: 5px 0 0; color: var(--muted); font-size: 9px; }
+.v5 .preview-meta span { margin: 0 4px; color: var(--faint); }
+.v5 .status-card { display: flex; align-items: center; justify-content: space-between; gap: 9px; padding: 9px 10px; border: 1px solid #abefc6; border-radius: 5px; background: var(--green-soft); }
+.v5 .status-copy { display: flex; align-items: center; gap: 7px; color: var(--green); font-size: 9.5px; font-weight: 600; }
+.v5 .status-copy i { width: 6px; height: 6px; border-radius: 50%; background: #12b76a; box-shadow: 0 0 0 3px rgba(18,183,106,.1); }
+.v5 .status-sub { margin-top: 3px; color: #4e7a63; font-size: 8px; font-weight: 400; }
+.v5 .details { border-top: 1px solid var(--line); }
+.v5 .detail-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid #f0f2f5; }
+.v5 .detail-row span { color: var(--muted); font-size: 8.5px; }
+.v5 .detail-row b { color: var(--ink-2); font-family: "Cascadia Mono", monospace; font-size: 8.5px; font-weight: 400; text-align: right; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.v5 .alias { display: flex; align-items: center; gap: 6px; padding: 8px 9px; border: 1px dashed var(--line-strong); border-radius: 4px; color: var(--dim); font-size: 8.5px; }
+.v5 .alias .i { width: 12px; height: 12px; }
+.v5 .alias span { color: var(--ink-2); }
+.v5 .alias button { margin-left: auto; color: var(--blue); font-size: 8px; }
+.v5 .group-box { padding: 9px 10px; border: 1px solid var(--line); border-radius: 4px; }
+.v5 .group-head { display: flex; align-items: center; justify-content: space-between; color: var(--muted); font-size: 8.5px; }
+.v5 .group-head b { color: var(--ink-2); font-family: "Cascadia Mono", monospace; font-size: 8px; font-weight: 400; }
+.v5 .group-row { display: flex; align-items: center; gap: 6px; margin-top: 7px; color: var(--muted); font-size: 8.5px; }
+.v5 .group-row i { width: 4px; height: 4px; border-radius: 50%; background: var(--faint); }
+.v5 .group-row.on { color: var(--green); }
+.v5 .group-row.on i { background: #12b76a; }
+.v5 .note-box { padding: 9px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface-2); }
+.v5 .note-box b { display: block; color: var(--muted); font-size: 8px; font-weight: 600; letter-spacing: .04em; }
+.v5 .note-box p { margin: 5px 0 0; color: var(--ink-2); font-size: 9px; line-height: 1.6; }
+.v5 .preview-actions { margin-top: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 7px; padding-top: 3px; }
+.v5 .preview-action { height: 31px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--line-strong); border-radius: 4px; background: #fff; color: var(--ink-2); font-size: 9px; }
+.v5 .preview-action:hover { border-color: #98a2b3; background: var(--surface-2); }
+.v5 .preview-action.danger { color: var(--red); border-color: #fecdca; background: var(--red-soft); }
+.v5 .preview-action.danger:hover { border-color: #f97066; }
+.v5 .preview-action .i { width: 12px; height: 12px; }
+.v5 .statusbar {
+  height: 30px; flex: none; display: flex; align-items: center; gap: 14px;
+  padding: 0 18px; border-top: 1px solid var(--line); background: var(--surface);
+  color: var(--dim); font-family: "Cascadia Mono", monospace; font-size: 8px;
+}
+.v5 .statusbar .ok { display: inline-flex; align-items: center; gap: 5px; color: var(--green); }
+.v5 .statusbar .ok i { width: 5px; height: 5px; border-radius: 50%; background: #12b76a; }
+.v5 .statusbar .spacer { flex: 1; }
+@media (max-width: 1280px) {
+  .v5 .preview { width: 310px; margin-right: 14px; }
+  .v5 .main { padding-left: 14px; }
+  .v5 .top-search { width: 300px; }
+}
+</style>
+</head>
+<body class="v5">
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.2"/><rect x="14" y="3" width="7" height="7" rx="1.2"/><rect x="3" y="14" width="7" height="7" rx="1.2"/><rect x="14" y="14" width="7" height="7" rx="1.2"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01" stroke-width="2.4"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4.2 4.2"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h8M16 7h4M4 17h4M12 17h8"/><circle cx="14" cy="7" r="2.2"/><circle cx="10" cy="17" r="2.2"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.1 6.4"/><path d="M20 4v7h-7"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.7v12.6c0 .8.9 1.3 1.6.9l10.1-6.3c.6-.4.6-1.4 0-1.8L9.6 4.8c-.7-.4-1.6.1-1.6.9Z" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.1"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.6 2.6-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21h-3.7v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1L4.9 17l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3.6v-3.7h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9L4.9 7.3 7.5 4.7l.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.5v-.2h3.7v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1 2.6 2.6-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.5 1h.2v3.7h-.2a1.7 1.7 0 0 0-1.5 1Z"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.8 20v-1.5a5.2 5.2 0 0 1 10.4 0V20"/><path d="M16.2 5.1a3.2 3.2 0 0 1 0 6.1M17.6 14.7a5.2 5.2 0 0 1 3.4 4.8V20"/></symbol>
+  <symbol id="i-crosshair" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.4"/><path d="M12 2.5v5M12 16.5v5M2.5 12h5M16.5 12h5"/><circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-map" viewBox="0 0 24 24"><path d="m3.5 6.2 5-2.7 7 2.7 5-2.7v14.3l-5 2.7-7-2.7-5 2.7Z"/><path d="M8.5 3.5v14.3M15.5 6.2v14.3"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24"><path d="m12 3 8 4.3v9.4L12 21l-8-4.3V7.3Z"/><path d="m4.4 7.5 7.6 4.2 7.6-4.2M12 11.7V21"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5Z"/><path d="m3.8 12.2 8.2 4.6 8.2-4.6M3.8 16.5l8.2 4.5 8.2-4.5"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 7.4a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2Z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 3.8h5M6.5 7l.8 13h9.4l.8-13M10 11v5M14 11v5"/></symbol>
+  <symbol id="i-archive" viewBox="0 0 24 24"><rect x="3.5" y="4" width="17" height="4" rx="1"/><path d="M5 8v12h14V8M9.5 12h5"/></symbol>
+  <symbol id="i-drive" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="M7 15h.01M11 15h.01M3.5 11h17"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7.5 10.5 12 15l4.5-4.5M4 19.5h16"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4M7.5 8.5 12 4l4.5 4.5M4 19.5h16"/></symbol>
+  <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6.5 9 5.5 5.5L17.5 9"/></symbol>
+  <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9.5 6.5 5.5 5.5-5.5 5.5"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m4.8 12.3 4.6 4.6 9.8-9.8"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.3" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3.8 21 20H3Z"/><path d="M12 9v4.8M12 17.2h.01" stroke-width="2"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 19 6v5.2c0 4.4-2.8 7.6-7 9.8-4.2-2.2-7-5.4-7-9.8V6Z"/><path d="m8.8 11.8 2.1 2.1 4.3-4.4"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4 10.5 13.5"/><path d="M19 14v5a1.5 1.5 0 0 1-1.5 1.5h-12A1.5 1.5 0 0 1 4 19V7a1.5 1.5 0 0 1 1.5-1.5H10"/></symbol>
+  <symbol id="i-gamepad" viewBox="0 0 24 24"><path d="M7.2 7h9.6c2.5 0 4.1 2 4.6 4.4l1 5.1c.3 1.7-1.5 2.9-2.9 1.8l-2.8-2.2H7.3l-2.8 2.2c-1.4 1.1-3.2-.1-2.9-1.8l1-5.1C3.1 9 4.7 7 7.2 7Z"/><path d="M7 11v3.5M5.3 12.8h3.5M16.2 12.2h.01M18.3 14.2h.01" stroke-width="2"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.3"/><path d="M12 7.5V12l3 2"/></symbol>
+  <symbol id="i-tag" viewBox="0 0 24 24"><path d="m3.8 12 8.1-8.1h6.9a1.5 1.5 0 0 1 1.5 1.5v6.9L12 20.4a1.6 1.6 0 0 1-2.3 0L3.8 14.3a1.6 1.6 0 0 1 0-2.3Z"/><circle cx="16.2" cy="7.8" r="1.2" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9Z"/></symbol>
+  <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6 10h.01M9.5 10h.01M13 10h.01M16.5 10h.01M20 10h.01M6 13.5h.01M9.5 13.5h.01M13 13.5h.01M16.5 13.5h.01M6 17h.01M9.5 17h.01M13 17h.01M16.5 17h.01M20 17h.01"/></symbol>
+  <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18.4 9.8a6.4 6.4 0 0 0-12.8 0c0 7.2-3 7.2-3 8.4h18.8c0-1.2-3-1.2-3-8.4Z"/><path d="M10 21h4"/></symbol>
+  <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5.2" rx="8" ry="3.2"/><path d="M4 5.2v6.6c0 1.8 3.6 3.2 8 3.2s8-1.4 8-3.2V5.2"/><path d="M4 11.8v6.6c0 1.8 3.6 3.2 8 3.2s8-1.4 8-3.2v-6.6"/></symbol>
+  <symbol id="i-command" viewBox="0 0 24 24"><path d="M9 4.5a2.5 2.5 0 1 1-2.5 2.5V17A2.5 2.5 0 1 1 9 14.5h6A2.5 2.5 0 1 0 17.5 17V7A2.5 2.5 0 1 0 15 9.5H9Z"/></symbol>
+  <symbol id="i-panel-left" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></symbol>
+  <symbol id="i-clock-rewind" viewBox="0 0 24 24"><path d="M4 4v6h6"/><path d="M4.8 14a8 8 0 1 1 1.3 5"/><path d="M12 8v4l2.5 1.5"/></symbol>
+  <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M4 12h16M14 6l6 6-6 6"/></symbol>
+  <symbol id="i-arrow-up-right" viewBox="0 0 24 24"><path d="M7 17 17 7M8 7h9v9"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.8 12s3.3-6 9.2-6 9.2 6 9.2 6-3.3 6-9.2 6-9.2-6-9.2-6Z"/><circle cx="12" cy="12" r="2.6"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 2.8h8l4 4V21H6Z"/><path d="M14 2.8v4h4M9 12h6M9 16h4"/></symbol>
+  <symbol id="i-warning" viewBox="0 0 24 24"><path d="M12 3.3 21.2 20H2.8Z"/><path d="M12 8.8v5M12 17h.01" stroke-width="2"/></symbol>
+  <symbol id="i-dot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-drag" viewBox="0 0 24 24"><path d="M9 6h.01M9 12h.01M9 18h.01M15 6h.01M15 12h.01M15 18h.01" stroke-width="2.4"/></symbol>
+</svg>
+
+
+<div class="app">
+  <header class="topbar">
+    <div class="brand"><img src="assets/app-icon.png" alt=""><div><div class="brand-name">L4D2 MOD MANAGER</div><div class="brand-sub">LOCAL LIBRARY / v1.2.1</div></div></div>
+    <label class="top-search"><svg class="i" aria-hidden="true"><use href="#i-search"></use></svg><input data-search placeholder="搜索名称、别名、标签、物品…" aria-label="搜索模组"><span class="kbd">Ctrl K</span></label>
+    <div class="top-spacer"></div>
+    <span class="top-status"><i></i>本地库已连接</span>
+    <div class="top-divider"></div>
+    <button class="icon-button" type="button" aria-label="刷新" data-toast="已重新扫描 addons"><svg class="i" aria-hidden="true"><use href="#i-refresh"></use></svg></button>
+    <button class="icon-button" type="button" aria-label="设置" data-toast="打开设置"><svg class="i" aria-hidden="true"><use href="#i-settings"></use></svg></button>
+    <button class="top-button" type="button" data-toast="打开压缩包导入"><svg class="i" aria-hidden="true"><use href="#i-upload"></use></svg>导入</button>
+    <button class="top-button" type="button" data-toast="打开工坊链接解析"><svg class="i" aria-hidden="true"><use href="#i-download"></use></svg>工坊</button>
+    <button class="top-button primary" type="button" data-toast="正在启动 Left 4 Dead 2"><svg class="i" aria-hidden="true"><use href="#i-play"></use></svg>启动游戏</button>
+  </header>
+  <div class="body">
+    <aside class="sidebar">
+      <nav data-nav-group>
+        <div class="side-label">Library / 模组库</div>
+        <div class="side-nav">
+          <button class="side-link active" data-nav type="button"><svg class="i" aria-hidden="true"><use href="#i-grid"></use></svg>全部模组<span class="n">128</span></button>
+          <button class="side-link" data-nav type="button"><svg class="i" aria-hidden="true"><use href="#i-users"></use></svg>角色<span class="n">42</span></button>
+          <button class="side-link" data-nav type="button"><svg class="i" aria-hidden="true"><use href="#i-crosshair"></use></svg>武器<span class="n">36</span></button>
+          <button class="side-link" data-nav type="button"><svg class="i" aria-hidden="true"><use href="#i-map"></use></svg>地图<span class="n">18</span></button>
+          <button class="side-link" data-nav type="button"><svg class="i" aria-hidden="true"><use href="#i-box"></use></svg>其他<span class="n">32</span></button>
+        </div>
+        <div class="side-gap"></div>
+        <div class="side-label">Smart lists / 智能列表</div>
+        <div class="side-nav">
+          <button class="side-link" data-nav type="button"><svg class="i" aria-hidden="true"><use href="#i-check"></use></svg>已启用<span class="n">43</span></button>
+          <button class="side-link" data-nav type="button"><svg class="i" aria-hidden="true"><use href="#i-x"></use></svg>已停用<span class="n">85</span></button>
+          <button class="side-link" data-nav type="button"><svg class="i" aria-hidden="true"><use href="#i-clock"></use></svg>最近添加<span class="n">12</span></button>
+          <button class="side-link" data-nav type="button"><svg class="i" aria-hidden="true"><use href="#i-alert"></use></svg>需要处理<span class="n">1</span></button>
+        </div>
+        <div class="side-gap"></div>
+        <div class="side-label">Collections / 合集</div>
+        <div class="side-list">
+          <button type="button"><i></i>周末混战<span>12</span></button>
+          <button type="button"><i></i>霓虹夜<span>8</span></button>
+          <button type="button"><i></i>原版增强<span>21</span></button>
+          <button type="button"><i></i>未分类<span>32</span></button>
+        </div>
+      </nav>
+      <div class="side-spacer"></div>
+      <div class="health-card">
+        <div class="health-head"><svg class="i" aria-hidden="true"><use href="#i-shield"></use></svg>库状态良好</div>
+        <div class="health-copy">128 个模组已纳管，仅 1 组外观需要清理。</div>
+        <div class="health-meter"><i></i></div>
+      </div>
+      <div class="side-foot"><span>128 FILES</span><span>4.8 GB</span></div>
+    </aside>
+    <main class="main">
+      <div class="page-head">
+        <div>
+          <div class="crumb">模组库 <svg class="i" aria-hidden="true"><use href="#i-chevron-right"></use></svg> <b>全部模组</b></div>
+          <h1>全部模组 <span>128 ITEMS</span></h1>
+          <p>按最近更新显示 <b>12</b> 项 · 已启用 3 项 · 同组互斥已开启</p>
+        </div>
+        <div class="page-actions">
+          <button class="mini-button" type="button" data-toast="扫描完成"><svg class="i" aria-hidden="true"><use href="#i-refresh"></use></svg>扫描</button>
+          <button class="mini-button" type="button" data-toast="整理规则已准备好"><svg class="i" aria-hidden="true"><use href="#i-sliders"></use></svg>整理规则</button>
+        </div>
+      </div>
+      <div class="filterbar">
+        <button class="filter-chip active" type="button" data-chip>全部 <span>128</span></button>
+        <button class="filter-chip" type="button" data-chip>已启用 <span>43</span></button>
+        <button class="filter-chip" type="button" data-chip>未启用 <span>85</span></button>
+        <button class="filter-chip" type="button" data-chip>有更新 <span>6</span></button>
+        <div class="filter-spacer"></div>
+        <button class="filter-select" type="button" data-toast="按最近更新排序">最近更新 <svg class="i" aria-hidden="true"><use href="#i-chevron-down"></use></svg></button>
+        <button class="filter-select" type="button" data-toast="筛选面板已打开">筛选 <svg class="i" aria-hidden="true"><use href="#i-sliders"></use></svg></button>
+      </div>
+      <div class="table-wrap">
+        <div class="table-head"><span class="chk"></span><span>模组</span><span>类别</span><span>大小</span><span>更新</span><span>状态</span><span></span></div>
+        <div class="table-body scroll-y">
+          
+<div class="table-row" data-select tabindex="0"
+  data-title="Koharu [Replace Ellis]" data-meta="角色 / Ellis"
+  data-size="116.1 MB" data-date="2 天前" data-file="3668116708.vpk"
+  data-img="assets/mods/mod1.webp" aria-label="Koharu [Replace Ellis]">
+  <span class="row-check"><input type="checkbox" aria-label="选择 Koharu [Replace Ellis]"></span>
+  <div class="row-name">
+    <span class="row-art"><img src="assets/mods/mod1.webp" alt=""></span>
+    <span class="row-text"><b>Koharu [Replace Ellis]</b><small>角色 · Ellis</small></span>
+  </div>
+  <span class="type-pill">角色</span>
+  <span class="row-size">116.1 MB</span>
+  <span class="row-date">2 天前</span>
+  <span class="row-state "><i></i>未启用</span>
+  <button type="button" class="switch " role="switch" aria-checked="false" aria-label="切换 Koharu [Replace Ellis]" data-switch data-toast-on="已启用，同组旧模组已自动停用" data-toast-off="已停用"><span class="switch-knob"></span></button>
+</div>
+
+<div class="table-row" data-select tabindex="0"
+  data-title="VRC lime 甜点屋 打歌服" data-meta="角色 / Ellis"
+  data-size="93.0 MB" data-date="4 天前" data-file="3664792140.vpk"
+  data-img="assets/mods/mod2.webp" aria-label="VRC lime 甜点屋 打歌服">
+  <span class="row-check"><input type="checkbox" aria-label="选择 VRC lime 甜点屋 打歌服"></span>
+  <div class="row-name">
+    <span class="row-art"><img src="assets/mods/mod2.webp" alt=""></span>
+    <span class="row-text"><b>VRC lime 甜点屋 打歌服</b><small>角色 · Ellis</small></span>
+  </div>
+  <span class="type-pill">角色</span>
+  <span class="row-size">93.0 MB</span>
+  <span class="row-date">4 天前</span>
+  <span class="row-state "><i></i>未启用</span>
+  <button type="button" class="switch " role="switch" aria-checked="false" aria-label="切换 VRC lime 甜点屋 打歌服" data-switch data-toast-on="已启用，同组旧模组已自动停用" data-toast-off="已停用"><span class="switch-knob"></span></button>
+</div>
+
+<div class="table-row is-selected" data-select tabindex="0"
+  data-title="VRC プラム Plum replace ellis" data-meta="角色 / Ellis"
+  data-size="34.1 MB" data-date="本周" data-file="3659210344.vpk"
+  data-img="assets/mods/mod3.webp" aria-label="VRC プラム Plum replace ellis">
+  <span class="row-check"><input type="checkbox" aria-label="选择 VRC プラム Plum replace ellis"></span>
+  <div class="row-name">
+    <span class="row-art"><img src="assets/mods/mod3.webp" alt=""></span>
+    <span class="row-text"><b>VRC プラム Plum replace ellis</b><small>角色 · Ellis</small></span>
+  </div>
+  <span class="type-pill">角色</span>
+  <span class="row-size">34.1 MB</span>
+  <span class="row-date">本周</span>
+  <span class="row-state on"><i></i>已启用</span>
+  <button type="button" class="switch on" role="switch" aria-checked="true" aria-label="切换 VRC プラム Plum replace ellis" data-switch data-toast-on="已启用，同组旧模组已自动停用" data-toast-off="已停用"><span class="switch-knob"></span></button>
+</div>
+
+<div class="table-row" data-select tabindex="0"
+  data-title="[Gakuen IDOLM@STER] Fujita" data-meta="角色 / Ellis"
+  data-size="146.4 MB" data-date="1 周前" data-file="3671024551.vpk"
+  data-img="assets/mods/mod4.webp" aria-label="[Gakuen IDOLM@STER] Fujita">
+  <span class="row-check"><input type="checkbox" aria-label="选择 [Gakuen IDOLM@STER] Fujita"></span>
+  <div class="row-name">
+    <span class="row-art"><img src="assets/mods/mod4.webp" alt=""></span>
+    <span class="row-text"><b>[Gakuen IDOLM@STER] Fujita</b><small>角色 · Ellis</small></span>
+  </div>
+  <span class="type-pill">角色</span>
+  <span class="row-size">146.4 MB</span>
+  <span class="row-date">1 周前</span>
+  <span class="row-state "><i></i>未启用</span>
+  <button type="button" class="switch " role="switch" aria-checked="false" aria-label="切换 [Gakuen IDOLM@STER] Fujita" data-switch data-toast-on="已启用，同组旧模组已自动停用" data-toast-off="已停用"><span class="switch-knob"></span></button>
+</div>
+
+<div class="table-row" data-select tabindex="0"
+  data-title="【原神】菲谢尔 极夜真梦" data-meta="角色 / Ellis"
+  data-size="38.3 MB" data-date="2 周前" data-file="3648830117.vpk"
+  data-img="assets/mods/mod5.webp" aria-label="【原神】菲谢尔 极夜真梦">
+  <span class="row-check"><input type="checkbox" aria-label="选择 【原神】菲谢尔 极夜真梦"></span>
+  <div class="row-name">
+    <span class="row-art"><img src="assets/mods/mod5.webp" alt=""></span>
+    <span class="row-text"><b>【原神】菲谢尔 极夜真梦</b><small>角色 · Ellis</small></span>
+  </div>
+  <span class="type-pill">角色</span>
+  <span class="row-size">38.3 MB</span>
+  <span class="row-date">2 周前</span>
+  <span class="row-state "><i></i>未启用</span>
+  <button type="button" class="switch " role="switch" aria-checked="false" aria-label="切换 【原神】菲谢尔 极夜真梦" data-switch data-toast-on="已启用，同组旧模组已自动停用" data-toast-off="已停用"><span class="switch-knob"></span></button>
+</div>
+
+<div class="table-row" data-select tabindex="0"
+  data-title="雨衣替换 Ellis" data-meta="角色 / Ellis"
+  data-size="246.6 MB" data-date="3 周前" data-file="3639905428.vpk"
+  data-img="assets/mods/mod6.webp" aria-label="雨衣替换 Ellis">
+  <span class="row-check"><input type="checkbox" aria-label="选择 雨衣替换 Ellis"></span>
+  <div class="row-name">
+    <span class="row-art"><img src="assets/mods/mod6.webp" alt=""></span>
+    <span class="row-text"><b>雨衣替换 Ellis</b><small>角色 · Ellis</small></span>
+  </div>
+  <span class="type-pill">角色</span>
+  <span class="row-size">246.6 MB</span>
+  <span class="row-date">3 周前</span>
+  <span class="row-state "><i></i>未启用</span>
+  <button type="button" class="switch " role="switch" aria-checked="false" aria-label="切换 雨衣替换 Ellis" data-switch data-toast-on="已启用，同组旧模组已自动停用" data-toast-off="已停用"><span class="switch-knob"></span></button>
+</div>
+
+<div class="table-row" data-select tabindex="0"
+  data-title="AK-47 | 霓虹风暴" data-meta="武器 / AK-47"
+  data-size="56.8 MB" data-date="今天" data-file="3680021947.vpk"
+  data-img="assets/mods/mod2.webp" aria-label="AK-47 | 霓虹风暴">
+  <span class="row-check"><input type="checkbox" aria-label="选择 AK-47 | 霓虹风暴"></span>
+  <div class="row-name">
+    <span class="row-art"><img src="assets/mods/mod2.webp" alt=""></span>
+    <span class="row-text"><b>AK-47 | 霓虹风暴</b><small>武器 · AK-47</small></span>
+  </div>
+  <span class="type-pill">武器</span>
+  <span class="row-size">56.8 MB</span>
+  <span class="row-date">今天</span>
+  <span class="row-state on"><i></i>已启用</span>
+  <button type="button" class="switch on" role="switch" aria-checked="true" aria-label="切换 AK-47 | 霓虹风暴" data-switch data-toast-on="已启用，同组旧模组已自动停用" data-toast-off="已停用"><span class="switch-knob"></span></button>
+</div>
+
+<div class="table-row" data-select tabindex="0"
+  data-title="M4A1 | 废土涂装" data-meta="武器 / M4A1"
+  data-size="73.2 MB" data-date="3 天前" data-file="3675500132.vpk"
+  data-img="assets/mods/mod4.webp" aria-label="M4A1 | 废土涂装">
+  <span class="row-check"><input type="checkbox" aria-label="选择 M4A1 | 废土涂装"></span>
+  <div class="row-name">
+    <span class="row-art"><img src="assets/mods/mod4.webp" alt=""></span>
+    <span class="row-text"><b>M4A1 | 废土涂装</b><small>武器 · M4A1</small></span>
+  </div>
+  <span class="type-pill">武器</span>
+  <span class="row-size">73.2 MB</span>
+  <span class="row-date">3 天前</span>
+  <span class="row-state "><i></i>未启用</span>
+  <button type="button" class="switch " role="switch" aria-checked="false" aria-label="切换 M4A1 | 废土涂装" data-switch data-toast-on="已启用，同组旧模组已自动停用" data-toast-off="已停用"><span class="switch-knob"></span></button>
+</div>
+
+<div class="table-row" data-select tabindex="0"
+  data-title="死亡中心 · 重制版" data-meta="地图 / 死亡中心"
+  data-size="1.2 GB" data-date="上周" data-file="3674110256.vpk"
+  data-img="assets/mods/mod6.webp" aria-label="死亡中心 · 重制版">
+  <span class="row-check"><input type="checkbox" aria-label="选择 死亡中心 · 重制版"></span>
+  <div class="row-name">
+    <span class="row-art"><img src="assets/mods/mod6.webp" alt=""></span>
+    <span class="row-text"><b>死亡中心 · 重制版</b><small>地图 · 死亡中心</small></span>
+  </div>
+  <span class="type-pill">地图</span>
+  <span class="row-size">1.2 GB</span>
+  <span class="row-date">上周</span>
+  <span class="row-state on"><i></i>已启用</span>
+  <button type="button" class="switch on" role="switch" aria-checked="true" aria-label="切换 死亡中心 · 重制版" data-switch data-toast-on="已启用，同组旧模组已自动停用" data-toast-off="已停用"><span class="switch-knob"></span></button>
+</div>
+
+<div class="table-row" data-select tabindex="0"
+  data-title="寂静岭 · 雾中街区" data-meta="地图 / 自定义"
+  data-size="3.4 GB" data-date="2 周前" data-file="3661004421.vpk"
+  data-img="assets/mods/mod5.webp" aria-label="寂静岭 · 雾中街区">
+  <span class="row-check"><input type="checkbox" aria-label="选择 寂静岭 · 雾中街区"></span>
+  <div class="row-name">
+    <span class="row-art"><img src="assets/mods/mod5.webp" alt=""></span>
+    <span class="row-text"><b>寂静岭 · 雾中街区</b><small>地图 · 自定义</small></span>
+  </div>
+  <span class="type-pill">地图</span>
+  <span class="row-size">3.4 GB</span>
+  <span class="row-date">2 周前</span>
+  <span class="row-state "><i></i>未启用</span>
+  <button type="button" class="switch " role="switch" aria-checked="false" aria-label="切换 寂静岭 · 雾中街区" data-switch data-toast-on="已启用，同组旧模组已自动停用" data-toast-off="已停用"><span class="switch-knob"></span></button>
+</div>
+
+<div class="table-row" data-select tabindex="0"
+  data-title="Coach | 警长制服" data-meta="角色 / Coach"
+  data-size="78.2 MB" data-date="5 天前" data-file="3678823160.vpk"
+  data-img="assets/mods/mod4.webp" aria-label="Coach | 警长制服">
+  <span class="row-check"><input type="checkbox" aria-label="选择 Coach | 警长制服"></span>
+  <div class="row-name">
+    <span class="row-art"><img src="assets/mods/mod4.webp" alt=""></span>
+    <span class="row-text"><b>Coach | 警长制服</b><small>角色 · Coach</small></span>
+  </div>
+  <span class="type-pill">角色</span>
+  <span class="row-size">78.2 MB</span>
+  <span class="row-date">5 天前</span>
+  <span class="row-state "><i></i>未启用</span>
+  <button type="button" class="switch " role="switch" aria-checked="false" aria-label="切换 Coach | 警长制服" data-switch data-toast-on="已启用，同组旧模组已自动停用" data-toast-off="已停用"><span class="switch-knob"></span></button>
+</div>
+
+<div class="table-row" data-select tabindex="0"
+  data-title="M60 | 旧日余晖" data-meta="武器 / M60"
+  data-size="91.5 MB" data-date="1 周前" data-file="3675311204.vpk"
+  data-img="assets/mods/mod2.webp" aria-label="M60 | 旧日余晖">
+  <span class="row-check"><input type="checkbox" aria-label="选择 M60 | 旧日余晖"></span>
+  <div class="row-name">
+    <span class="row-art"><img src="assets/mods/mod2.webp" alt=""></span>
+    <span class="row-text"><b>M60 | 旧日余晖</b><small>武器 · M60</small></span>
+  </div>
+  <span class="type-pill">武器</span>
+  <span class="row-size">91.5 MB</span>
+  <span class="row-date">1 周前</span>
+  <span class="row-state "><i></i>未启用</span>
+  <button type="button" class="switch " role="switch" aria-checked="false" aria-label="切换 M60 | 旧日余晖" data-switch data-toast-on="已启用，同组旧模组已自动停用" data-toast-off="已停用"><span class="switch-knob"></span></button>
+</div>
+        </div>
+        <div class="table-foot"><span>显示 <b>12</b> / 128</span><span>·</span><span>已选 0 项</span><span class="spacer"></span><button type="button" data-toast="加载更多模组">加载更多</button></div>
+      </div>
+    </main>
+    <aside class="preview">
+      <div class="preview-head"><span>DETAIL / 模组详情</span><button type="button" aria-label="关闭详情" data-toast="详情面板可收起"><svg class="i" aria-hidden="true"><use href="#i-x"></use></svg></button></div>
+      <div class="preview-art"><img data-detail-img src="assets/mods/mod3.webp" alt="已选模组预览"><span class="preview-label">CATALOG PREVIEW</span></div>
+      <div>
+        <h2 class="preview-title" data-detail-title>VRC プラム Plum replace ellis</h2>
+        <p class="preview-meta"><span data-detail-meta>角色 / Ellis</span><span>·</span><span data-detail-size>34.1 MB</span></p>
+      </div>
+      <div class="status-card">
+        <div><div class="status-copy"><i></i>已启用</div><div class="status-sub">游戏内附加内容菜单已同步</div></div>
+        <button type="button" class="switch on" role="switch" aria-checked="true" aria-label="切换 VRC Plum 启用状态" data-switch data-toast-on="已启用，同组旧模组已自动停用" data-toast-off="已停用"><span class="switch-knob"></span></button>
+      </div>
+      <div class="details">
+        <div class="detail-row"><span>文件</span><b data-detail-file>3659210344.vpk</b></div>
+        <div class="detail-row"><span>加入日期</span><b>2026-11-07</b></div>
+        <div class="detail-row"><span>来源</span><b>本地导入</b></div>
+        <div class="detail-row"><span>冲突组</span><b>Ellis · 外观</b></div>
+      </div>
+      <div class="alias"><svg class="i" aria-hidden="true"><use href="#i-tag"></use></svg>别名 <span>夏日甜点屋</span><button type="button" data-toast="编辑别名">编辑</button></div>
+      <div class="group-box">
+        <div class="group-head"><span>同组模组</span><b>1 / 6 ACTIVE</b></div>
+        <div class="group-row on"><i></i>VRC プラム Plum replace ellis</div>
+        <div class="group-row"><i></i>Koharu [Replace Ellis]</div>
+        <div class="group-row"><i></i>VRC lime 甜点屋 打歌服</div>
+      </div>
+      <div class="note-box"><b>备注 / NOTE</b><p>夏日甜点屋主题外观，建议与 VRC 系列角色模型搭配使用。文件已校验，无缺失依赖。</p></div>
+      <div class="preview-actions">
+        <button class="preview-action" type="button" data-toast="已在资源管理器中显示"><svg class="i" aria-hidden="true"><use href="#i-folder"></use></svg>打开文件夹</button>
+        <button class="preview-action danger" type="button" data-toast="删除前会移动到回收站"><svg class="i" aria-hidden="true"><use href="#i-trash"></use></svg>移入回收站</button>
+      </div>
+    </aside>
+  </div>
+  <footer class="statusbar">
+    <span class="ok"><i></i>LOCAL LIBRARY CONNECTED</span><span>128 MODS · 43 ENABLED</span><span>游戏未运行</span><span class="spacer"></span><span>E:\SteamLibrary\steamapps\common\Left 4 Dead 2\left4dead2\addons</span>
+  </footer>
+</div>
+
+<script src="assets/base.js"></script>
+</body>
+</html>

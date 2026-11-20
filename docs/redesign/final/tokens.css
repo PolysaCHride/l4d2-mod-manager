@@ -1,0 +1,189 @@
+/*
+ * L4D2 Mod Manager — palette layer
+ *
+ * 启用态卡片 token 说明（--card-on-*）：
+ *   bg / bg-hover / border / ring / text / meta / divider / badge-bg / badge-text
+ *   每套色板各自给一组，组件只引用变量，不写死颜色。
+ *   BLACKSITE 取 accent 绿；SAFEHOUSE、INDEX 取各自的 accent 红；WORKSHOP 取 accent 蓝。
+ * BLACKSITE is the layout and the default palette.
+ * SAFEHOUSE / WORKSHOP / INDEX are inherited palettes from directions 02 / 03 / 05.
+ *
+ * Use semantic tokens in components; never use raw palette hex inside a component.
+ */
+:root,
+[data-palette="blacksite"] {
+  --palette-name: "BLACKSITE SIGNAL";
+
+  --canvas: #08090b;
+  --surface: #0f1114;
+  --surface-raised: #171b20;
+  --surface-sunken: #0b0d10;
+
+  --border-subtle: #242930;
+  --border-strong: #303740;
+  --border-focus: #d6f45d;
+
+  --text-primary: #e8ebe5;
+  --text-secondary: #929a91;
+  --text-tertiary: #6f7a6f;
+  --text-inverse: #151900;
+
+  --accent: #d6f45d;
+  --accent-strong: #e6ff7a;
+  --accent-soft: #1a2111;
+  --accent-ink: #151900;
+
+  --success: #9bb34e;
+  --success-soft: #141a0d;
+  --warning: #eab46f;
+  --warning-soft: #19150f;
+  --danger: #ff6854;
+  --danger-soft: #1b0f0c;
+
+  --focus-ring: #d6f45d;
+  --selection: rgba(214, 244, 93, .25);
+  --scrim: rgba(3, 5, 4, .72);
+
+  /* 启用态卡片（方案 C：荧光绿底 + 黑描边 + 外圈光环） */
+  --card-on-bg: #d6f45d;
+  --card-on-bg-hover: #e6ff7a;
+  --card-on-border: #0a0c06;
+  --card-on-ring: #d6f45d;
+  --card-on-text: #0d1008;
+  --card-on-meta: #37400f;
+  --card-on-divider: rgba(13, 16, 8, .24);
+  --card-on-badge-bg: #0d1008;
+  --card-on-badge-text: #d6f45d;
+}
+
+[data-palette="safehouse"] {
+  --palette-name: "SAFEHOUSE PAPER";
+
+  --canvas: #f1eadc;
+  --surface: #faf5e9;
+  --surface-raised: #fffdf7;
+  --surface-sunken: #e9dfcd;
+
+  --border-subtle: #d9cdb9;
+  --border-strong: #9f937f;
+  --border-focus: #b52b1d;
+
+  --text-primary: #1b1d16;
+  --text-secondary: #666856;
+  --text-tertiary: #8b8574;
+  --text-inverse: #fff4e8;
+
+  --accent: #b52b1d;
+  --accent-strong: #8d1d13;
+  --accent-soft: #f2ded7;
+  --accent-ink: #fff4e8;
+
+  --success: #4d573c;
+  --success-soft: #e4e6d8;
+  --warning: #a66a2e;
+  --warning-soft: #f5e8d8;
+  --danger: #b52b1d;
+  --danger-soft: #f3ddd8;
+
+  --focus-ring: #b52b1d;
+  --selection: rgba(181, 43, 29, .18);
+  --scrim: rgba(27, 29, 22, .45);
+  /* 启用态卡片：SAFEHOUSE 用 accent 红，文字反白 */
+  --card-on-bg: #b52b1d;
+  --card-on-bg-hover: #8d1d13;
+  --card-on-border: #2a221c;
+  --card-on-ring: #b52b1d;
+  --card-on-text: #fff4e8;
+  --card-on-meta: #f4d9d2;
+  --card-on-divider: rgba(255, 244, 232, .28);
+  --card-on-badge-bg: #fff4e8;
+  --card-on-badge-text: #b52b1d;
+}
+
+[data-palette="workshop"] {
+  --palette-name: "WORKSHOP BLUE";
+
+  --canvas: #08121a;
+  --surface: #0d1b25;
+  --surface-raised: #122430;
+  --surface-sunken: #0b1821;
+
+  --border-subtle: #223845;
+  --border-strong: #305164;
+  --border-focus: #6bc7f2;
+
+  --text-primary: #dbe9f0;
+  --text-secondary: #89a4b4;
+  --text-tertiary: #5f7e90;
+  --text-inverse: #07131a;
+
+  --accent: #6bc7f2;
+  --accent-strong: #9de0ff;
+  --accent-soft: #173241;
+  --accent-ink: #07131a;
+
+  --success: #a8d414;
+  --success-soft: #1a2a11;
+  --warning: #f0b96a;
+  --warning-soft: #231b11;
+  --danger: #f06a55;
+  --danger-soft: #24130f;
+
+  --focus-ring: #6bc7f2;
+  --selection: rgba(107, 199, 242, .25);
+  --scrim: rgba(3, 10, 15, .72);
+  /* 启用态卡片：WORKSHOP 用 accent 蓝 */
+  --card-on-bg: #6bc7f2;
+  --card-on-bg-hover: #9de0ff;
+  --card-on-border: #07131a;
+  --card-on-ring: #6bc7f2;
+  --card-on-text: #07131a;
+  --card-on-meta: #12384a;
+  --card-on-divider: rgba(7, 19, 26, .24);
+  --card-on-badge-bg: #07131a;
+  --card-on-badge-text: #6bc7f2;
+}
+
+[data-palette="index"] {
+  --palette-name: "INDEX LEDGER";
+
+  --canvas: #f5f6f8;
+  --surface: #ffffff;
+  --surface-raised: #fafbfc;
+  --surface-sunken: #f0f2f5;
+
+  --border-subtle: #e4e7ec;
+  --border-strong: #d0d5dd;
+  --border-focus: #d92d20;
+
+  --text-primary: #14171c;
+  --text-secondary: #667085;
+  --text-tertiary: #7c8698;
+  --text-inverse: #ffffff;
+
+  --accent: #d92d20;
+  --accent-strong: #b42318;
+  --accent-soft: #fef3f2;
+  --accent-ink: #ffffff;
+
+  --success: #067647;
+  --success-soft: #ecfdf3;
+  --warning: #b54708;
+  --warning-soft: #fffaeb;
+  --danger: #d92d20;
+  --danger-soft: #fef3f2;
+
+  --focus-ring: #d92d20;
+  --selection: rgba(217, 45, 32, .12);
+  --scrim: rgba(16, 24, 40, .42);
+  /* 启用态卡片：INDEX 用 accent 红，文字反白 */
+  --card-on-bg: #d92d20;
+  --card-on-bg-hover: #b42318;
+  --card-on-border: #7a1810;
+  --card-on-ring: #d92d20;
+  --card-on-text: #ffffff;
+  --card-on-meta: #ffe3e0;
+  --card-on-divider: rgba(255, 255, 255, .3);
+  --card-on-badge-bg: #ffffff;
+  --card-on-badge-text: #d92d20;
+}

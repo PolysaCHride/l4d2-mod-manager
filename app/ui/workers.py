@@ -1,5 +1,23 @@
 # -*- coding: utf-8 -*-
 """QThread 工作线程：扫描 / 导入 / 下载 / 在线搜索 / 迁移 / 预览图。"""
+"""旧 UI 的后台任务（QThread 版）。
+
+★ 对照关系：本文件是 app/shell/tasks.py 的行为基准。
+新架构不依赖 Qt，所以任务逻辑被重写成了纯 Python 函数。
+验证重写是否正确，唯一办法是对比着看。
+
+已移植到 app/shell/tasks.py：
+  ScanWorker            → tasks.scan
+  ImportAnalyzeWorker   → tasks.analyze_archives
+  ImportCommitWorker    → tasks.commit_import
+  DownloadWorker        → tasks.download   （进度加权算法逐行等价）
+  DetailsWorker         → tasks.fetch_details
+  UpdateCheckWorker     → api.check_update
+  ArchiveInstallWorker  → ⚠️ 未移植（新包已内置 7zip，场景少见）
+
+未移植（新 UI 无入口，见 docs/LEGACY_UI.md）：
+  SearchWorker、PreviewWorker、ParentCollectionWorker、MigrateWorker
+"""
 from PySide6.QtCore import QThread, Signal
 
 from ..core import archiver, downloader, importer, steam_api
