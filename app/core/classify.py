@@ -19,7 +19,15 @@ import re
 from . import classify_data as _cdata
 
 # 分类引擎版本号：表格/规则变更时 +1，库缓存据此强制重解析
-CLF_VERSION = 14
+#
+# 15 (2026-11-20)：
+#   · 新增「前置/框架包」识别（xdReanimsBase、KSEP Platform 这类包，
+#     内含 survivor/infected 模型但其实是依赖包，原被误判为角色/特感）
+#   · 新增「addoninfo 明示 Campaign/Map → 归地图」前置规则
+#     （地图多部件包拆开卖时无 bsp/mission，原被误判为音效/枪械/载具）
+#   改版本号会触发全库重解析（200 个 vpk），这是刻意的 —— 上面两条
+#   必须回填到已有记录，否则老模组继续显示错分类。
+CLF_VERSION = 15
 
 # 会互相冲突、需要同物品互斥的类别（导入/下载后默认启用，同物品只保留最新加入的一个）
 CONFLICT_CATEGORIES = {"角色", "特感", "枪械", "近战", "医疗品", "投掷"}
@@ -142,6 +150,132 @@ def _resolve_candidates(cands, hint=""):
     return (cat, "")
 
 
+def _has_specific_appearance_signal(paths):
+    """这个包里是否有「明确指向某个具体人物/武器」的外观替换信号。
+
+    用于决定 addonContent_Campaign 标记该不该被内容启发式覆盖。
+
+    只有出现**能锁定到具体物品**的证据才算数：
+      · models/survivors/survivor_<名> / models/infected/<名>（具体人物模型）
+      · 武器 v_/w_models 的已知型号
+
+    单纯的 sound/ materials/ 或泛泛的 models/ 不算 —— 地图包本来就带这些。
+    """
+    if not paths:
+        return False
+    for p in paths:
+        # 具体幸存者模型
+        if p.startswith("models/survivors/") or p.startswith("materials/models/survivors/"):
+            for seg in p.split("/"):
+                stem = seg.split(".")[0]
+                if stem.startswith("survivor_"):
+                    return True
+                if stem in SURVIVOR_NAMES:
+                    return True
+        # 具体特感模型
+        if p.startswith("models/infected/") or p.startswith("materials/models/infected/"):
+            for seg in p.split("/"):
+                stem = seg.split(".")[0]
+                if stem in SPECIAL_NAMES:
+                    return True
+        # 具体武器型号
+        if _is_weapon_context(p):
+            for seg in p.split("/"):
+                stem = seg.split(".")[0]
+                # 段名写法多样：w_rifle_ak47 / v_rifle_ak47 / rifle_ak47 / w_rif_ak47，
+                # 而 WEAPON_SEG_NAMES 的键统一是 w_<缩写>_<型号> 这种形式。
+                # 所以先剥掉 w_/v_，再把 rifle_/shotgun_… 缩写成 rif_/snip_，
+                # 最后补回 w_ 前缀去查表。
+                base = stem
+                for pfx in ("w_", "v_"):
+                    if base.startswith(pfx):
+                        base = base[len(pfx):]
+                cands = {stem, base, "w_" + base, "v_" + base}
+                for mid, short in (("rifle_", "rif_"), ("shotgun_", "shotgun_"),
+                                   ("sniper_", "snip_"), ("smg_", "smg_"),
+                                   ("pistol_", "pistol_")):
+                    if base.startswith(mid):
+                        rest = base[len(mid):]
+                        cands.add("w_" + short + rest)
+                        cands.add("w_" + base)
+                if cands & set(WEAPON_SEG_NAMES):
+                    return True
+    return False
+
+
+def _looks_like_framework(addoninfo, hint, all_paths=None):
+    """判断这个 vpk 是不是「前置/框架/基础库」包，而不是具体物品的外观替换。
+
+    ★ 必须非常保守：误判会把正常皮肤丢进「杂项」，用户完全找不到它。
+    所以只认「包自己明确声明是依赖包」的证据，不看内容特征。
+
+    证据来源（任一即可）：
+      A. addoninfo 的标题或描述里出现依赖类措辞（英文 base/framework/dependency…、
+         中文「前置模组」「基础库」「框架」…）
+      B. 文件名/标题 hint 里出现框架关键词
+
+    并且要求：**这个包没有锁定到单一具体物品**（item 为空）。
+    如果一个包自称 base 但同时明确只改 Ellis，那它更可能是「Ellis 皮肤包」，
+    按外观处理更安全。
+    """
+    # 依赖类措辞。刻意收窄，避免误伤。真实踩过的坑：
+    #   "using Theuaredead's port of the original medkit animations as a base"
+    #   —— 这是「基于某人的移植作品」，不是「前置依赖包」。
+    #   所以不接受裸的 "as a base"，只接受 "base mod/base dependency/
+    #   base pack/base library/base file" 这类明确指向包的组合。
+    _EN = re.compile(
+        r"\bbase\s+(?:mod|dependency|pack|library|file|addon)\b"
+        r"|\b(?:framework|dependency|prerequisite|prereq)\s+(?:mod|pack|for)\b"
+        r"|\brequired\s+for\b|\brequires\s+this\b"
+        r"|\bdependency\s+for\b",
+        re.I)
+    # 中文按子串，但要求成词（避免「平台包」之外的零散命中）
+    _ZH = re.compile(r"前置(?:模组|模块|包|依赖)?|基础库|框架(?:包|模组)?|依赖包|基础包")
+
+    texts = []
+    if isinstance(addoninfo, dict):
+        # addoninfo 的键大小写不统一（AddonTitle / addontitle 都出现过）
+        for k, v in addoninfo.items():
+            kl = str(k).lower()
+            if kl in ("addontitle", "addondescription", "addontag", "addonnotes"):
+                texts.append(str(v or ""))
+    if hint:
+        texts.append(str(hint))
+
+    if not texts:
+        return False
+    blob = " ".join(texts)
+
+    hit_en = bool(_EN.search(blob))
+    hit_zh = bool(_ZH.search(blob))
+    if not (hit_en or hit_zh):
+        return False
+
+    # 「自称框架」还不够：必须确实锁不到单一具体物品。
+    # 这里不复用 _single_item（它需要已解析的集合），只用路径粗判：
+    # 若包内含多个不同人物的模型 → 更像是跨人物的框架，而不是单个皮肤。
+    if all_paths:
+        people = set()
+        for p in all_paths:
+            if "models/survivors/" in p or "models/infected/" in p:
+                for seg in p.split("/"):
+                    stem = seg.split(".")[0]
+                    if stem.startswith("survivor_"):
+                        people.add(stem)
+                    elif stem in SURVIVOR_NAMES or stem in SPECIAL_NAMES:
+                        people.add(stem)
+        # 覆盖 3 个以上不同人物 → 明显是通用框架，不是单人物皮肤
+        if len(people) >= 3:
+            return True
+        # 一个人物都没识别出来（如 ksep.mdl / gestures_*）也是框架特征
+        if len(people) == 0:
+            return True
+        # 只覆盖 1~2 个人物：可能是正常皮肤包，交给后续分类
+        return False
+
+    return True
+
+
 def classify_paths(paths, addoninfo=None, mission=None, hint=""):
     """返回 (category, item, tags)。item 为空串表示多项/整体/不细分。"""
     paths = [p.lower() for p in paths]
@@ -152,6 +286,57 @@ def classify_paths(paths, addoninfo=None, mission=None, hint=""):
         name = mission.get("DisplayTitle") or mission.get("DisplayName") \
             or mission.get("Name") or ""
         return ("地图", str(name), tags)
+
+    # 1.5) 框架 / 前置依赖包 → 杂项
+    #
+    # 为什么要在实体分类之前判：这类包的 vpk 里**天然含有** survivor/infected 模型
+    # （它们要覆盖这些人的动画），所以会被下面的 `if survivors:` / `if infected:`
+    # 抢先命中，错误地出现在「角色」/「特感」侧栏里。
+    #
+    # 真实案例（2026-11-20 实测库）：
+    #   2121557118  xdReanimsBase      59 条路径里 40 条 infected、56 条 anim
+    #               addoninfo: "Base dependency for re-animations mods"
+    #   3062523298  KSEP Platform      16 条 survivors 路径，但无任何具体人物名
+    #               addoninfo: "特定人物模组实现静态表情的前置模组"
+    #
+    # 危害：若被当成外观且 item 非空，启用框架会**静默停用整套皮肤**；
+    # item 为空时侥幸不触发互斥，但用户会在「特感」里看到一个框架，无法理解。
+    #
+    # 判定很保守，只认「明确自称框架」的包，宁可漏判也不误伤正常皮肤：
+    #   ① addoninfo 的标题/描述里出现依赖类措辞，或标题里出现框架关键词，且
+    #   ② 该包覆盖的人物数量不像「单个皮肤」（0 个识别不出 / ≥3 个跨人物）
+    if _looks_like_framework(addoninfo, hint, all_paths=paths):
+        return ("杂项", "前置/框架", tags)
+
+    # 1.6) addoninfo 明确声明「这是战役 / 地图」→ 直接归地图，优先于内容启发式
+    #
+    # 为什么必须前置：地图的多部件包（Part1/2、Part2/2…）拆开卖时，
+    # 单个 vpk 里常常只有 sound/models/materials，**没有 maps/*.bsp、也没有
+    # missions/*.txt**，于是被内容启发式判成音效音乐/枪械/载具。
+    # 一旦被打散，用户在「地图」侧栏就找不到这些部件，而地图缺件根本玩不了。
+    #
+    # 真实案例（2026-11-20 实测库，12 个部件里 10 个命中此规则）：
+    #   2813701533  Divine Cybermancy part2-8  168 条全是 sound/ → 曾判成音效音乐
+    #               addoninfo: addonContent_Campaign=1  ← 它自己说得很清楚
+    #   3825198598  档案:零 part2              addonContent_Map=1
+    #
+    # ⚠️ 已知边界：有 2 个部件（The Parish Halloween 的 models/materials 包）
+    # **既无 addoninfo、也无 mission、也无 bsp**，纯素材包。单看内容无法判定
+    # 它属于哪张地图，分类器只能给出「材质特效」。
+    # 它们的正确归属要靠「同作者/同路径族」推断，而那需要跨 vpk 知识，
+    # 不属于单 vpk 分类器的职责 —— 这类包请让用户手工归入（pinned）。
+    if isinstance(addoninfo, dict):
+        _is_map_flag = (_flag(addoninfo, "addonContent_Campaign")
+                        or _flag(addoninfo, "addonContent_Map"))
+        if _is_map_flag and not _has_specific_appearance_signal(paths):
+            name = ""
+            for k, v in addoninfo.items():
+                if str(k).lower() in ("addontitle", "addontitle_multi"):
+                    name = str(v or "").strip()
+                    break
+            if not name:
+                name = str(hint or "").strip()
+            return ("地图", name, tags)
 
     has_bsp = any(p.startswith("maps/") and p.endswith(".bsp") for p in paths)
 

@@ -127,7 +127,6 @@
     };
     return;
   }
-
   // ---------------------------------------------------------------- state
   const state = {
     view: 'library',
@@ -700,6 +699,17 @@
 
       ${group.length ? `<div class="group-panel">
         <div class="group-head"><span>同组</span><span class="group-count">${group.filter((x) => x.enabled).length + (m.enabled ? 1 : 0)} / ${group.length + 1}</span></div>
+        ${m.mutexApplicable ? `<div class="group-mutex">
+          <div class="group-mutex-copy">
+            <b>同组互斥</b>
+            <small>${m.groupMutex
+              ? '启用一个会停用同组其它项（游戏机制）'
+              : '已关闭 · 同组多项可同时启用'}</small>
+          </div>
+          <button class="switch sm ${m.groupMutex ? 'on' : ''}" type="button"
+            id="insGroupMutex" role="switch"
+            aria-checked="${m.groupMutex}" aria-label="同组互斥开关"></button>
+        </div>` : ''}
         ${groupRows}
       </div>` : ''}
 
@@ -719,6 +729,27 @@
       </div>`;
 
     $('#insClose').addEventListener('click', () => { state.selectedId = null; renderGrid(); renderInspector(); });
+
+    // 「同组互斥」组级开关：按 (分类, 物品) 控制该组是否自动停用同组其它项。
+    // 关掉后，启用一个不会顶掉同组的 —— 由用户自己负责冲突。
+    const groupMutexBtn = $('#insGroupMutex');
+    if (groupMutexBtn) {
+      groupMutexBtn.addEventListener('click', async () => {
+        const next = !m.groupMutex;
+        const res = await window.bridge.set_group_mutex(m.cat, m.item, next);
+        if (!res || !res.ok) {
+          await infoDialog({ title: '无法切换互斥', tone: 'danger',
+                             text: (res && res.error) || '保存失败' });
+          return;
+        }
+        // 这一组里所有模组的开关状态都要跟着变
+        MODS.forEach((x) => {
+          if (x.cat === m.cat && x.item === m.item) x.groupMutex = next;
+        });
+        renderInspector(); renderFilters();
+        toast(next ? '已开启同组互斥' : '已关闭同组互斥 · 可同时启用');
+      });
+    }
 
     $('#insSwitch').addEventListener('click', () => toggleMod(m.id));
 
@@ -928,6 +959,11 @@
       autoItem: apiMod.autoItem == null ? null : (apiMod.autoItem || ''),
       // 所属合集 ID（"ws_<数字>"），空串表示无归属
       coll: apiMod.collection || '',
+      // 组级互斥：mutexApplicable = 这类模组会参与互斥；
+      // groupMutex = 它所在的那个「分类+物品」组**当前**是否真的在互斥。
+      // 只有 mutexApplicable 为真时才需要在详情里显示开关。
+      mutexApplicable: !!apiMod.mutexApplicable,
+      groupMutex: !!apiMod.groupMutex,
     };
   }
 
@@ -1050,7 +1086,11 @@
     }
 
     // ---- 启用 ----
-    const siblings = sameGroup(m).filter((x) => x.enabled);
+    // 组互斥关闭时（用户在「同组」面板里关掉了这一组），
+    // 启用不会顶掉同组其它项，所以也不该再弹「会被自动停用」的确认框。
+    const siblings = m.mutexApplicable === false
+      ? []
+      : (m.groupMutex === false ? [] : sameGroup(m).filter((x) => x.enabled));
     if (siblings.length) {
       const ok = await confirmDialog({
         title: '切换同组外观',

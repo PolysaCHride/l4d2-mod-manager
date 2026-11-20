@@ -49,6 +49,10 @@ class TestToModContract(unittest.TestCase):
             # collection —— 所属合集 ID，之前被丢弃导致合集在新 UI 完全隐形
             # （见 ALIGNMENT_AUDIT A-1）
             "collection",
+            # 组级互斥开关（2026-11-20）：
+            #   mutexApplicable = 这类模组参与互斥（互斥类别 + item 非空）
+            #   groupMutex      = 它所在的那个「分类+物品」组当前是否真的在互斥
+            "mutexApplicable", "groupMutex",
         })
 
     def test_dropped_fields_are_explicit(self):

@@ -593,6 +593,22 @@ def progress(text, done=0, current=""):
 | B-3 预览图真下载 | 用户裁定推后；注意这是**首次实现**不是移植（`PreviewWorker` 从未被实例化） |
 | B-4 合集反查 | 随合集 UI 一起，暂不移植 |
 
+### 8.5 第四轮（分类器修复 + 组级互斥开关）
+
+| 项 | 结果 |
+|---|---|
+| 框架/前置包误分类 | ✅ 新增 `_looks_like_framework`：`xdReanimsBase`、`KSEP Platform` 从「特感/角色」改为「杂项/前置框架」 |
+| 地图多部件被打散 | ✅ 新增「addoninfo 明示 Campaign/Map → 归地图」前置规则：4 个部件修回地图，4 个地图家族恢复完整 |
+| `CLF_VERSION` | ✅ 14 → **15**，真实库 200/200 已重扫到 15 |
+| 组级互斥开关 | ✅ 详情页「同组」面板新增拨动开关，按 `(分类, 物品)` 关闭互斥；状态存 `settings.json` 的 `mutex_off_groups` |
+
+**已知边界（无法自动修）**：`The Parish Halloween` 的 2 个 models/materials 部件
+既无 addoninfo、也无 mission、也无 bsp，单看内容无法判断属于哪张地图，
+分类器只能给「材质特效」。这类请让用户手工改分类（会自动置 `pinned`）。
+
+> 分类规则回归测试见 `tests/test_classify_rules.py`（15 项），
+> 包含「名叫 base 但只改一个角色的皮肤仍是角色」这类误伤防护。
+
 ---
 
 ## 9. 已知的坑（实现细节）

@@ -227,6 +227,15 @@
       return { ok: true, enabled: m.enabled, disabled_siblings: [] };
     },
 
+    // 组级互斥开关（按「分类 + 物品」）
+    set_group_mutex: async (category, item, enabled) => {
+      const res = await call('set_group_mutex', category, item, enabled);
+      if (res) return res;
+      return { ok: true, mutex: !!enabled };
+    },
+    get_group_mutex: async (category, item) =>
+      (await call('get_group_mutex', category, item)) || { ok: true, mutex: true },
+
     set_alias: async (file, alias) => {
       const res = await call('set_alias', file, alias);
       if (res) return res;

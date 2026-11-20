@@ -171,6 +171,24 @@ def _fmt_size(n):
     return "%.1f GB" % n
 
 
+def _mutex_group_key(rec):
+    """模组所属的「互斥组」键：category + item。
+
+    与 core 的 mutex 判定（`other.category == rec.category and other.item ==
+    rec.item`）保持完全一致 —— 组级开关必须和真正的互斥作用域对齐，
+    否则开关关掉一个组、实际互斥的是另一个组。
+
+    只有参与互斥的模组才有组键（互斥类别 + item 非空）；其余返回空串。
+    """
+    if not rec:
+        return ""
+    cat = rec.get("category", "")
+    item = rec.get("item", "") or ""
+    if not item or cat not in CONFLICT_CATEGORIES:
+        return ""
+    return "%s\x00%s" % (cat, item)
+
+
 def _fmt_ago(ts):
     """时间戳 → 「2 天前」这类相对时间。"""
     try:
@@ -296,6 +314,14 @@ class Api(object):
             "autoItem": rec.get("auto_item"),
             # 所属合集 ID（"ws_<数字>"）。只有地图多部件会用，没归属时为空。
             "collection": rec.get("collection", "") or "",
+            # 这个模组所在的「分类+物品」组当前是否启用互斥。
+            # 不参与互斥的模组（地图、item 为空）恒为 False —— 前端据此
+            # 决定要不要显示那个开关（只有真正互斥的组才需要）。
+            "groupMutex": bool(
+                _mutex_group_key(rec) and self._mutex_enabled(_mutex_group_key(rec))),
+            # 是否参与互斥（与 mutex 的区别：mutex 表示「类别上互斥」，
+            # groupMutex 表示「这一组当前真的在互斥」）
+            "mutexApplicable": bool(_mutex_group_key(rec)),
         }
 
     def _all_mods(self):
@@ -366,7 +392,11 @@ class Api(object):
     # ---------------------------------------------------------------- 写
 
     def toggle_mod(self, file_name, enabled):
-        """启用/停用。同组互斥时返回被连带停用的兄弟项。"""
+        """启用/停用。同组互斥时返回被连带停用的兄弟项。
+
+        「组级互斥开关」为关时（用户在 Inspector 里关掉了那个物品组的互斥），
+        本次启用**不会**顶掉同组其它模组 —— 由用户自己负责冲突。
+        """
         try:
             self._ensure()
             rec = self._find(file_name)
@@ -376,12 +406,18 @@ class Api(object):
                 return _err("未配置游戏目录")
 
             enabled = bool(enabled)
+            # 这个模组所属的「分类+物品」组是否还启用互斥（默认开）
+            group_key = _mutex_group_key(rec)
+            mutex_on = self._mutex_enabled(group_key) if group_key else True
+
             # zone 互斥由 core 负责，它已经算出被停用的兄弟项并返回。
             # 这里不要自己再扫一遍 —— 那样会和 core 的规则静默分叉。
-            disabled = self._library.set_enabled(file_name, enabled, mutex=True) or []
+            disabled = self._library.set_enabled(
+                file_name, enabled, mutex=mutex_on) or []
             if disabled:
                 self._emit("mods.changed", {"mods": self._all_mods()})
-            return _ok(enabled=enabled, disabled_siblings=list(disabled))
+            return _ok(enabled=enabled, disabled_siblings=list(disabled),
+                       mutex=mutex_on)
         except Exception as exc:
             return _err(exc)
 
@@ -677,6 +713,70 @@ class Api(object):
     def cancel_job(self, job_id):
         try:
             return _ok(cancelled=self._runner.cancel(job_id))
+        except Exception as exc:
+            return _err(exc)
+
+    # ---------------------------------------------------------------- 组级互斥开关
+
+    def _mutex_disabled_groups(self):
+        """读「已关闭互斥」的组键集合。
+
+        存在 settings.json 的 `mutex_off_groups` 里（列表，元素是组键）。
+        组键含 category/item 两段，用 \\x00 分隔避免和二进制的冒号混淆。
+        """
+        self._ensure()
+        if self._store is None:
+            return set()
+        raw = self._store.settings().get("mutex_off_groups") or []
+        if not isinstance(raw, (list, tuple, set)):
+            return set()
+        return {str(x) for x in raw}
+
+    def _mutex_enabled(self, group_key):
+        """这个组还启用互斥吗？没有记录的组默认启用（=保持原有游戏机制）。"""
+        if not group_key:
+            return True
+        return group_key not in self._mutex_disabled_groups()
+
+    def set_group_mutex(self, category, item, enabled):
+        """开关某个「分类 + 物品」组的互斥。
+
+        enabled=False：该组内启用模组时**不再自动停用**同组其它模组。
+        默认是开的（保持 L4D2 的游戏机制）。关掉是用户的显式选择，
+        用于「我确实想同时启用两个」或分类判断不被认可时。
+
+        注意：关掉互斥**不会**动任何现有启用状态，只是改变后续行为。
+        """
+        try:
+            self._ensure()
+            if self._store is None:
+                return _err("数据目录不可用")
+            cat = str(category or "")
+            it = str(item or "")
+            if not it or cat not in CONFLICT_CATEGORIES:
+                return _err("该组不参与互斥（需要互斥类别且物品非空）")
+            key = "%s\x00%s" % (cat, it)
+
+            off = self._mutex_disabled_groups()
+            if enabled:
+                off.discard(key)
+            else:
+                off.add(key)
+            self._store.set_setting("mutex_off_groups", sorted(off))
+            return _ok(mutex=bool(enabled))
+        except Exception as exc:
+            return _err(exc)
+
+    def get_group_mutex(self, category, item):
+        """查一个组当前是否启用互斥。"""
+        try:
+            self._ensure()
+            cat = str(category or "")
+            it = str(item or "")
+            if not it or cat not in CONFLICT_CATEGORIES:
+                return _ok(mutex=True, applicable=False)
+            key = "%s\x00%s" % (cat, it)
+            return _ok(mutex=self._mutex_enabled(key), applicable=True)
         except Exception as exc:
             return _err(exc)
 

@@ -468,6 +468,24 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 .switch.on { background: var(--accent); border-color: var(--accent); }
 .switch.on .knob { transform: translateX(15px); background: var(--accent-ink); }
 .switch[disabled] { opacity: .4; cursor: default; }
+/* 小号开关（组级互斥用）：没有 .knob 子元素，用伪元素画滑块 */
+.switch.sm { width: 28px; height: 16px; }
+.switch.sm::after {
+  content: ''; position: absolute; top: 2px; left: 2px;
+  width: 10px; height: 10px; border-radius: 50%; background: #758064;
+  transition: transform .16s ease, background .16s ease;
+}
+.switch.sm.on::after { transform: translateX(12px); background: var(--accent-ink); }
+
+/* 同组面板里的组级互斥行 */
+.group-mutex {
+  display: flex; align-items: center; gap: 10px;
+  margin: 2px 0 8px; padding: 7px 8px;
+  border: 1px solid #252c27; border-radius: 4px; background: #0b0e0c;
+}
+.group-mutex-copy { flex: 1; min-width: 0; }
+.group-mutex-copy b { display: block; color: #9aa49a; font-size: 9.5px; font-weight: 600; }
+.group-mutex-copy small { display: block; margin-top: 2px; color: #5f6a61; font-size: 8.5px; line-height: 1.5; }
 
 /* ---------------------------------------------------------- 07 Inspector */
 .inspector {

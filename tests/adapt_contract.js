@@ -47,6 +47,7 @@ const BACKEND_FIELDS = [
   'size', 'sizeText', 'enabled', 'workshop_id', 'thumb',
   'added', 'addedText', 'pinned', 'mutex',
   'autoCategory', 'autoItem', 'collection',
+  'mutexApplicable', 'groupMutex',
 ];
 
 // adapt() 的输出字段集。加字段必须显式改这里。
@@ -54,6 +55,7 @@ const FRONTEND_FIELDS = [
   'id', 'name', 'alias', 'cat', 'item', 'size', 'img',
   'enabled', 'added', 'addedDate', 'file', 'ws', 'mutex',
   'pinned', 'autoCat', 'autoItem', 'coll',
+  'mutexApplicable', 'groupMutex',
 ];
 
 // 后端有、但 adapt 有意不接的字段。
@@ -78,6 +80,8 @@ function baseRecord(over) {
     autoCategory: null,
     autoItem: null,
     collection: '',
+    mutexApplicable: true,
+    groupMutex: true,
   }, over || {});
 }
 
@@ -100,6 +104,8 @@ check('后端每个字段都被 adapt 显式处理（接收或明确丢弃）', 
     'autoCategory',  // → autoCat
     'autoItem',      // → autoItem
     'collection',    // → coll
+    'mutexApplicable', // → mutexApplicable
+    'groupMutex',      // → groupMutex
   ]));
   const unhandled = BACKEND_FIELDS.filter((f) => !handled.has(f));
   eq(unhandled, [], '这些后端字段既没被 adapt 接收、也没登记为丢弃');
