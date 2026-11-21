@@ -297,6 +297,22 @@ check('回落不修改原对象（只读兜底）', () => {
   eq(m.item, '', 'displayItem 不能改 m.item');
 });
 
+console.log('\n「未指定」这一行');
+
+check('文案是「未指定」，不是「未指定物品」', () => {
+  eq(app.UNSET_LABEL, '未指定');
+});
+
+check('排序：全部第一、未指定第二、其余按名称', () => {
+  eq(app.orderFilterItems(['Zeta', '未指定', '全部地图', 'Alpha'], []),
+     ['全部地图', '未指定', 'Alpha', 'Zeta']);
+});
+
+check('「未分类」也排在第二位（它不是名字，是个桶）', () => {
+  eq(app.orderFilterItems(['Alpha', '未分类', '全部X'], []),
+     ['全部X', '未分类', 'Alpha']);
+});
+
 console.log('\n子分类列表（排序 / 去重 / 自动消失）');
 
 const SUBS_MODS = [

@@ -303,8 +303,8 @@ window.__coll = null;
         .every((n) => treeNames.indexOf(n) >= 0);
       ok(out.builtinKept, '管理器自带的子分类被误删了');
 
-      // 树的子分类按名称排序（「全部X」在第一、「未指定物品」紧随其后）
-      const plain = treeNames.filter((n) => !n.startsWith('全部') && n !== '未指定物品');
+      // 树的子分类按名称排序（「全部X」在第一、「未指定」紧随其后）
+      const plain = treeNames.filter((n) => !n.startsWith('全部') && n !== '未指定');
       out.treeSorted = JSON.stringify(plain)
         === JSON.stringify(plain.slice().sort((a, b) => a.localeCompare(b, 'zh')));
       ok(out.treeSorted, '树的子分类没有按名称排序');
@@ -333,8 +333,8 @@ window.__coll = null;
       const missing = want.filter((n) => out.specialRows.indexOf(n) < 0);
       ok(missing.length === 0, '特感少了子分类：' + missing.join(','));
       ok(out.specialRows.indexOf('全部特感') === 0, '第一行应该是「全部特感」');
-      ok(out.specialRows.indexOf('未指定物品') === 1,
-         '第二行应该是「未指定物品」：' + out.specialRows.join(' / '));
+      ok(out.specialRows.indexOf('未指定') === 1,
+         '第二行应该是「未指定」：' + out.specialRows.join(' / '));
 
       const empty = rows.find((r) => r.name === 'Hunter');
       out.emptyCount = empty ? empty.count : null;
@@ -356,9 +356,9 @@ window.__coll = null;
       ok(out.specialCards > 0, '回到「全部特感」后没有卡片');
     }
 
-    // ── 「未指定物品」在每个一级分类下都有，并且只筛本分类 ──
+    // ── 「未指定」在每个一级分类下都有，并且只筛本分类 ──
     // 以前只有单层列表临时追加这一行，分组里根本没有；而且点哪个分类的
-    // 「未指定物品」都会把整个 rail 的空 item 模组混在一起。
+    // 「未指定」都会把整个 rail 的空 item 模组混在一起。
     const railOther = document.querySelector('[data-rail="other"]');
     if (railOther) {
       railOther.click();
@@ -369,14 +369,14 @@ window.__coll = null;
       await sleep(600);
       const unsetRows = [...document.querySelectorAll('.filter-row')]
         .filter((r) => r.querySelector('.item-name')
-          && r.querySelector('.item-name').textContent === '未指定物品');
+          && r.querySelector('.item-name').textContent === '未指定');
       out.unsetCats = [...new Set(unsetRows.map((r) => r.dataset.cat))];
       ok(out.unsetCats.length >= 3,
-         '「其他」里多个分类都该有「未指定物品」，实际 ' + out.unsetCats.join(','));
+         '「其他」里多个分类都该有「未指定」，实际 ' + out.unsetCats.join(','));
 
-      // 点「音效音乐 → 未指定物品」，只应筛出音效音乐里没有子分类的那些
+      // 点「音效音乐 → 未指定」，只应筛出音效音乐里没有子分类的那些
       const target = unsetRows.find((r) => r.dataset.cat === '音效音乐');
-      ok(!!target, '音效音乐没有「未指定物品」行');
+      ok(!!target, '音效音乐没有「未指定」行');
       const bb = await window.bridge.bootstrap();
       const expect = bb.mods.filter((m) => m.category === '音效音乐'
         && !m.item && !m.collection).length;
@@ -386,7 +386,7 @@ window.__coll = null;
         await sleep(800);
         out.unsetCards = document.querySelectorAll('.mod-card').length;
         ok(out.unsetCards === expect,
-           '「未指定物品」筛出的数量不对：' + out.unsetCards + ' vs ' + expect);
+           '「未指定」筛出的数量不对：' + out.unsetCards + ' vs ' + expect);
         out.unsetCrumb = (document.querySelector('#crumb') || {}).textContent || '';
         ok(out.unsetCrumb.indexOf('音效音乐') >= 0,
            '面包屑没带分类：' + out.unsetCrumb);
@@ -473,7 +473,7 @@ def run(win):
           % (len(out.get("specialRows") or []),
              "、".join(out.get("specialRows") or []),
              out.get("emptyCount"), out.get("emptyCards")), flush=True)
-    print("[coll] 未指定物品：分类=%s 音效音乐应有 %s 筛出 %s 面包屑=%r"
+    print("[coll] 未指定：分类=%s 音效音乐应有 %s 筛出 %s 面包屑=%r"
           % (",".join(out.get("unsetCats") or []), out.get("unsetExpect"),
              out.get("unsetCards"), out.get("unsetCrumb")), flush=True)
     print("[coll] 选择器：现有 %s 项 可滚动=%s 已排序=%s 不细分行=%s；树上按名排序=%s；"

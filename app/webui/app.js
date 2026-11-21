@@ -29,6 +29,11 @@
   // 真实数据由 bootstrap 填充。
   let MODS = [];
 
+  /** 「没有子分类」那一行的文案。**唯一的写法** —— 以前字符串散在 5 处，
+      改一个字要全城搜。Node 契约测试里 state 不初始化，所以用 var 声明
+      （全文件最前面，函数提升后能安全读到；const 会踩 TDZ）。 */
+  var UNSET_LABEL = '未指定';
+
   // FilterPanel 结构与拆解文档一致：分组 → 物品
   // 一级分类 → 归属的二级分类。
   // 结构固定，但**具体物品从真实数据里读**，不再写死。
@@ -59,10 +64,10 @@
 
   /** 取某个二级分类下的物品名（按数量降序，带「全部X」置顶）。 */
   function itemsOfCategory(catName, pool) {
-    // 第二行永远是「未指定物品」：这个分类下 item 为空的模组只能从这里找到，
+    // 第二行永远是「未指定」：这个分类下 item 为空的模组只能从这里找到，
     // 以前只在单层列表里临时追加，分组里干脆没有 —— 于是「音效音乐 13 个，
     // 但只有一个子分类」这种账对不上。
-    return ['全部' + catName, '未指定物品'].concat(
+    return ['全部' + catName, UNSET_LABEL].concat(
       subItemsOf(catName, pool, state.collections, state.catalog));
   }
 
@@ -88,6 +93,8 @@
       displayItem,
       subItemsOf,
       collectionTag,
+      UNSET_LABEL,
+      orderFilterItems,
       CATEGORY_OPTIONS,
       RAIL_DEFS,
       RAILS,
@@ -122,8 +129,8 @@
     // 分类 → 该分类下**全部可能的子分类**（后端从 core 词表算出）。
     // 有它才能把「目前没有模组的子分类」也画出来（特感只有 2 个时像坏了）。
     catalog: {},
-    // 当前筛选所在的分类组（「武器」rail 里点「枪械 → 未指定物品」只应看枪械）。
-    // 没有它的话，同名子分类会串（「语音」在角色和特感里都有；「未指定物品」
+    // 当前筛选所在的分类组（「武器」rail 里点「枪械 → 未指定」只应看枪械）。
+    // 没有它的话，同名子分类会串（「语音」在角色和特感里都有；「未指定」
     // 每个分类都有），点哪个都会把整个 rail 的结果混在一起。
     filterCat: '',
     // 详情下方「更多」折叠块是否展开。跨重渲染保留，
@@ -457,7 +464,7 @@
         const cat = f.slice(2);
         // 「全部X」：X 是二级分类名（枪械/近战…）或一级标题（角色/地图…）
         list = list.filter((m) => m.cat === cat);
-      } else if (f === '未指定物品') {
+      } else if (f === UNSET_LABEL) {
         list = list.filter((m) => !displayItem(m, state.collections));
       } else {
         // 子分类统一走 displayItem：item 为空但属于合集的模组也能被合集名筛出来
@@ -525,7 +532,7 @@
       // 角色 / 特感 / 地图：单层列表，物品直接摊平
       // 单分类 rail（角色/特感/地图）按分类取目录；「全部」rail 不铺全量目录
       const onlyCat = def.cats && def.cats.length === 1 ? def.cats[0] : null;
-      const items = ['全部' + def.title, '未指定物品'].concat(
+      const items = ['全部' + def.title, UNSET_LABEL].concat(
         subItemsOf(onlyCat, all, state.collections, state.catalog));
       groups = [{ key: def.title, items, flat: true }];
     }
@@ -579,14 +586,14 @@
     }));
   }
 
-  /** 筛选列表排序：全部第一、未指定第二、其余按数量降序。 */
+  /** 筛选列表排序：全部第一、未指定第二、其余按名称。 */
   function orderFilterItems(items, pool) {
     const rank = (name) => {
       if (name.startsWith('全部')) return 0;
       if (name.startsWith('未指定') || name === '未分类') return 1;
       return 2;
     };
-    // 「全部X」永远第一、「未指定物品/未分类」紧随其后，其余**一律按名称排**。
+    // 「全部X」永远第一、「未指定/未分类」紧随其后，其余**一律按名称排**。
     // 以前是按数量降序 —— 用户找一个具体的地图/角色时，数量天天变，
     // 位置也跟着跳，反而难找。
     return items.slice().sort((a, b) => {
@@ -600,9 +607,9 @@
   function renderItemRows(items, pool, nested, catName) {
     return orderFilterItems(items, pool).map((name) => {
       const isAll = name.startsWith('全部');
-      const isUnset = name === '未指定物品';
+      const isUnset = name === UNSET_LABEL;
       // 只有「当前分类 + 当前项」同时匹配才算选中：
-      // 「语音」在角色/特感里都有，「未指定物品」每个分类都有
+      // 「语音」在角色/特感里都有，「未指定」每个分类都有
       const tab = catName || '';
       const active = state.filterItem
         ? state.filterItem === name && (state.filterCat || '') === tab
@@ -633,7 +640,7 @@
   function renderHeader() {
     const rail = RAILS[state.rail];
     const item = state.filterItem && !state.filterItem.startsWith('全部') ? state.filterItem : '';
-    // 带上分类：「语音」角色/特感都有，「未指定物品」每个分类都有
+    // 带上分类：「语音」角色/特感都有，「未指定」每个分类都有
     const tag = item && state.filterCat ? state.filterCat + ' · ' + item : item;
     $('#crumb').innerHTML = `模组库 ${icon('chevron-right')} ${esc(rail.title)}${tag ? ' ' + icon('chevron-right') + ' <strong>' + esc(tag) + '</strong>' : ''}`;
     const alias = item ? (MODS.find((m) => m.item === item && m.alias) || {}).alias : '';
