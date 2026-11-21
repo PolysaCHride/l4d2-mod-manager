@@ -128,7 +128,7 @@ window.__coll = null;
       ok(out.staysOpen, '重渲染后「更多」被收起来了');
     }
 
-    // 没有合集的模组不该有这块
+    // 没有合集的模组**也要**有「更多」块，正文写「不属于任何合集」
     const noColl = b.mods.find((m) => !m.collection);
     if (noColl) {
       const rail2 = document.querySelector('[data-rail="all"]');
@@ -139,8 +139,17 @@ window.__coll = null;
       if (c2) {
         c2.click();
         await sleep(700);
-        out.noCollHasMore = !!document.querySelector('.ins-more');
-        ok(!out.noCollHasMore, '没有合集的模组也渲染了「更多」块');
+        const d2 = document.querySelector('.ins-more');
+        out.noCollHasMore = !!d2;
+        ok(!!d2, '没有合集的模组没有渲染「更多」块（应该始终渲染）');
+        if (d2) {
+          out.noCollText = (d2.querySelector('.more-body') || {}).textContent || '';
+          ok(out.noCollText.indexOf('不属于任何合集') >= 0,
+             '无合集时正文没有「不属于任何合集」：' + out.noCollText.slice(0, 40));
+          ok(!d2.querySelector('.more-hint'),
+             '无合集时折叠条不该显示「合集 · N 个部件」摘要');
+          ok(!d2.querySelector('.coll-parts'), '无合集时不该渲染部件列表');
+        }
       }
     }
   } catch (e) {

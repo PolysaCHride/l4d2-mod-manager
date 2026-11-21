@@ -565,47 +565,54 @@
 
   /** 模组详情下方「更多」折叠块。
 
-      目前只放「合集」：**纯展示分组，不参与启用/停用判定**
-      （用户裁定，见 HANDOFF §6.5）。真实库里 The Bloody Moors 的 5 个
-      部件标题、分类、物品**完全一样**，只有体积和工坊 ID 不同 ——
-      没有这张表，用户根本分不清这 5 条是同图的不同部件。
+      **始终渲染**（用户要求）：200 条里只有 6 条属于合集，但「没有合集」
+      本身就是一条需要被看到的信息 —— 隐藏整块会让用户以为这功能不存在。
 
-      没有合集的模组不渲染这个块：200 条里只有 6 条有归属，
-      给另外 194 条都挂一个空的「更多」纯属噪音。
+      合集是**纯展示分组，不参与启用/停用判定**（用户裁定，见 HANDOFF §6.5）。
+      真实库里 The Bloody Moors 的 5 个部件标题、分类、物品**完全一样**，
+      只有体积和工坊 ID 不同 —— 没有这张表，用户根本分不清是同图的不同部件。
   */
   function renderMoreBlock(m) {
     const coll = m.coll ? state.collections[m.coll] : null;
-    if (!coll) return '';
+    const files = coll ? (coll.files || []) : [];
 
-    const files = coll.files || [];
-    const parts = files.map((f) => {
-      const mm = MODS.find((x) => x.file === f);
-      const cur = !!(mm && mm.id === m.id);
-      const label = mm ? (mm.alias || mm.name) : f;
-      const running = !!(mm && mm.enabled);
-      return `<li class="coll-part${cur ? ' cur' : ''}${mm ? '' : ' gone'}"`
-        + (mm ? ` data-part="${esc(mm.id)}" role="button" tabindex="0"` : '')
-        + ` title="${esc(f)}${mm ? '' : '（已不在库中）'}">`
-        + `<i class="coll-dot${running ? ' on' : ''}"></i>`
-        + `<span class="coll-part-name">${esc(label)}</span>`
-        // 同一张图的部件标题完全一样，体积是唯一能区分它们的字段
-        + `<span class="coll-part-size">${mm ? esc(fmtSize(mm.size)) : ''}</span>`
-        + (cur ? '<span class="coll-here">当前</span>' : '')
-        + '</li>';
-    }).join('');
+    // 摘要只在真有合集时出现；没有合集就别在折叠条上写「合集 · 0 个部件」
+    const hint = coll ? `<span class="more-hint">合集 · ${files.length} 个部件</span>` : '';
 
-    return `<details class="ins-more"${state.moreOpen ? ' open' : ''}>
-        <summary>更多<span class="more-hint">合集 · ${files.length} 个部件</span></summary>
-        <div class="more-body">
-          <div class="coll-head">
+    let body;
+    if (!coll) {
+      body = `<p class="more-note">不属于任何合集。</p>
+        <p class="more-note dim">合集在「导入工坊合集」时随下载一起建立，
+        这里不提供手工归组 —— 归属请用下面的子分类。</p>`;
+    } else {
+      const parts = files.map((f) => {
+        const mm = MODS.find((x) => x.file === f);
+        const cur = !!(mm && mm.id === m.id);
+        const label = mm ? (mm.alias || mm.name) : f;
+        const running = !!(mm && mm.enabled);
+        return `<li class="coll-part${cur ? ' cur' : ''}${mm ? '' : ' gone'}"`
+          + (mm ? ` data-part="${esc(mm.id)}" role="button" tabindex="0"` : '')
+          + ` title="${esc(f)}${mm ? '' : '（已不在库中）'}">`
+          + `<i class="coll-dot${running ? ' on' : ''}"></i>`
+          + `<span class="coll-part-name">${esc(label)}</span>`
+          // 同一张图的部件标题完全一样，体积是唯一能区分它们的字段
+          + `<span class="coll-part-size">${mm ? esc(fmtSize(mm.size)) : ''}</span>`
+          + (cur ? '<span class="coll-here">当前</span>' : '')
+          + '</li>';
+      }).join('');
+      body = `<div class="coll-head">
             <span class="coll-title">${esc(coll.name || '未命名合集')}</span>
             ${coll.workshop_id
               ? `<button class="link-btn" type="button" id="insCollWs">工坊页</button>` : ''}
           </div>
           <ul class="coll-parts">${parts}</ul>
           <p class="more-note">同名部件靠这张表区分：同一张图的多个 VPK 要一起启用才完整。
-          合集只是展示分组，管理器不会因为它自动启停、也不替你判断冲突。</p>
-        </div>
+          合集只是展示分组，管理器不会因为它自动启停、也不替你判断冲突。</p>`;
+    }
+
+    return `<details class="ins-more"${state.moreOpen ? ' open' : ''}>
+        <summary>更多${hint}</summary>
+        <div class="more-body">${body}</div>
       </details>`;
   }
 

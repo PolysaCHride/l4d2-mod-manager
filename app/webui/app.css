@@ -562,6 +562,7 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 .coll-part.cur .coll-part-size { color: #6d7a6e; }
 .coll-here { flex: none; color: #68736a; font-size: 8.5px; }
 .more-note { margin: 8px 0 0; color: #5b655c; font-size: 8.5px; line-height: 1.65; }
+.more-note.dim { margin-top: 4px; color: #464d47; }
 
 .inspector-actions { margin-top: auto; padding-top: 2px; display: flex; align-items: center; gap: 3px; }
 .icon-action { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 4px; color: #7f8a80; }
