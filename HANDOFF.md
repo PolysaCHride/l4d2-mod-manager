@@ -167,34 +167,34 @@ node --check app/webui/bridge.js
 ### 3.5 打包
 
 ```powershell
-# 新栈（主线）—— 自动带 7-Zip、自动校验产物
-.\build_release.ps1 -Target web
+# 默认就是新界面（等价于 -Target web）：自动带 7-Zip、自动冒烟、自动校验产物
+.\build_release.ps1
 
-# 旧栈
+# 无 GUI 的环境（CI）关掉冒烟
+.\build_release.ps1 -NoSmoke
+
+# 不重新打包，只校验现有产物 —— 同样默认冒烟
+.\build_release.ps1 -VerifyOnly
+
+# 旧界面（已归档）：能构建，但会先打印「不保证可用、不再发版」
 .\build_release.ps1 -Target legacy
-
-# 两套一起
-.\build_release.ps1 -Target both
-
-# 改过 spec / hiddenimports 之后必须跑一次：打包完真的把 exe 启起来冒烟
-.\build_release.ps1 -Target web -Smoke
-
-# 不重新打包，只校验现有产物（CI 的 verify 阶段）
-.\build_release.ps1 -Target web -VerifyOnly
 ```
 
 产出：
 ```
 release/L4D2 Mod Manager-v<版本>-win64-web/        目录版
 release/L4D2 Mod Manager-v<版本>-win64-web.zip    压缩包
-release/L4D2 Mod Manager-v<版本>-win64/           旧栈（无 -web 后缀）
+release/L4D2 Mod Manager-v<版本>-win64/           旧界面（已归档，-Target legacy 才产出）
 ```
+
+> `-Target both` 已删除：旧界面归档后没有「两套一起发」的场景。
 
 版本号**自动从 `packaging/version_info.txt` 读**，不用手工传。
 
 ⚠️ **两个 spec 的输出目录名不同**（`(WebUI)` 后缀），这是刻意改的 —— 原来两个都叫 `L4D2 Mod Manager`，先后构建会静默互相覆盖。
 
-✅ **`build_release.ps1` 现在两套栈都支持**（本期修复）。原来只打旧 spec，新栈没有任何自动化发版路径。
+> 历史：`build_release.ps1` 原来只打旧 spec，新栈没有任何自动化发版路径（2026-11-20 修复）。
+> 现在**只打新界面**，旧界面的构建路径仅作归档用途保留。
 
 #### 7-Zip 的双重保险
 
@@ -232,7 +232,10 @@ release/L4D2 Mod Manager-v<版本>-win64/           旧栈（无 -web 后缀）
 3. 断言 stdout 里有 `boot ... ok=true` —— **只看截图不算数**，空壳窗口也能截出 4.9MB 的图
 4. 收掉进程、删掉冒烟产生的 `data/`（里面有本地游戏路径）、再跑一遍 `Test-Package`
 
-会短暂弹窗，所以默认不开。**改过 spec / `hiddenimports` / 入口文件之后必须开一次。**
+**冒烟默认开启**（2026-11-21 起）：不弹窗就不算构建过。它会短暂弹一次窗口，
+无 GUI 的环境用 `-NoSmoke` 关掉 —— 跳过时会打印一行「已跳过冒烟（-NoSmoke）」，
+不静默。冒烟失败**必须**让构建以非零码退出（`Invoke-SmokeTest` 直接 throw，
+实测 `-VerifyOnly` 下拿掉 exe 会 EXIT=1），不能降级成警告。
 
 #### 产物搬运/压缩要带重试
 
@@ -848,7 +851,7 @@ def progress(text, done=0, current=""):
 - [ ] 点顶栏的「启动」，确认真的拉起了 Steam（这是本轮修好的 5 处之一）
 - [ ] 跑一次 `.\build_release.ps1 -Target web`，确认
       `release/L4D2 Mod Manager-v*-win64-web/_internal/7zip/7z.exe` 存在
-- [ ] 跑一次 `.\build_release.ps1 -Target web -Smoke`，确认 exe 真的能启动（冒烟会弹一次窗）
+- [ ] 跑一次 `.\build_release.ps1`（默认就冒烟，会弹一次窗），确认 exe 真的能启动
 - [ ] 把 `third_party/7zip` 临时移走再构建，确认**构建失败**而不是产出残缺包
 - [ ] 读 `docs/DATA_SCHEMA.md`（改分类规则前必读 `clfv` 那节）
 - [ ] 读 `docs/redesign/proto/RESULTS.md`（为什么选 pywebview）

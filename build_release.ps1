@@ -7,8 +7,10 @@
     [string]$Target = "web",
     # 跳过打包，只校验现有产物（用于 CI 的 verify 阶段）
     [switch]$VerifyOnly,
-    # 打包后真的把 exe 启动一次做冒烟（只有 web 栈支持）。
-    # 会短暂弹出窗口，所以默认不开；改 spec / hiddenimports 之后必须开一次。
+    # 冒烟（真的把 exe 启动一次）**默认开启**，因为它是唯一能抓到
+    # 「spec 少带一个模块」这类问题的手段。无 GUI 的环境传 -NoSmoke 关掉。
+    [switch]$NoSmoke,
+    # 历史参数，保留只为不破坏旧命令行（现在不传也是开的）
     [switch]$Smoke
 )
 
@@ -243,15 +245,19 @@ function New-Release([string]$Stack, [string]$Ver) {
 
     Test-Package $packageDir $Stack
 
-    if ($Smoke) {
-        if ($cfg.Entry -eq "main_web.py") {
+    if ($cfg.Entry -eq "main_web.py") {
+        if ($NoSmoke) {
+            # 不静默跳过：CI 日志里要能一眼看出来「这次没验过启动」
+            Write-Host "  已跳过冒烟（-NoSmoke）" -ForegroundColor DarkYellow
+        }
+        else {
             Invoke-SmokeTest $packageDir $Stack
             # 冒烟会在包里创建 data/，再查一遍，别把运行时数据打进 zip
             Test-Package $packageDir $Stack
         }
-        else {
-            Write-Host "  跳过冒烟：$Stack 栈没有 L4D2_SHOT 钩子" -ForegroundColor DarkYellow
-        }
+    }
+    else {
+        Write-Host "  跳过冒烟：$Stack 栈没有 L4D2_SHOT 钩子" -ForegroundColor DarkYellow
     }
 
     if ($VerifyOnly) {
