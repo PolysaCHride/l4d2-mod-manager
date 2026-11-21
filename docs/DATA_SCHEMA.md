@@ -337,6 +337,32 @@ for cid, info in store.collections().items():
 
 ---
 
+### 7.4 `item`（子分类）与 `collection`（合集）谁说了算
+
+两者都能表达「这张图属于哪个合集」，但职责不同，别混：
+
+| | `item`（子分类） | `collection`（合集归属） |
+|---|---|---|
+| 是什么 | 分类器给的第二层分类，**用户可以改** | 工坊合集的成员关系 |
+| 存在哪 | `mods[file].item` | `collections[cid].files`（**记录上的同名字段不可信**，见 §7.3） |
+| 谁写 | 分类器；用户改分类时 `set_category` | `downloader.download_and_import(..., collection=...)` |
+| 会被重扫覆盖吗 | 用户改过（`pinned`）就不覆盖 | 表本身不受重扫影响；记录上的缓存会被抹成空 |
+| 界面上的位置 | 过滤树第二层、「分类 / 子分类」 | 卡片上的 `合集名 (x/x)`、详情「更多」里的部件列表 |
+
+**四条规则**：
+
+1. 显示时 `item` 优先；`item` 为空且属于合集 → **前端显示层**回落到合集名
+   （只读，不写库）。真实数据里 The Bloody Moors 的 5 个部件 `item` 与合集名
+   本来就一致，所以天然对齐。
+2. **API 层（`_to_mod`）不许拿合集名填 `item`**。否则等于 collections 覆盖 item，
+   会和 `auto_item`/`pinned` 打架，重扫还会把这个假 item 当用户值固化。
+   契约测试 `test_item_is_never_filled_from_collection` 锁死这条。
+3. 用户改子分类只写 `category`/`item`（`set_category` 置 `pinned`），
+   **永远不写 `collections`** —— 那是工坊结构，删了就不可再生。
+4. 「归回工坊合集」= 把 `item` 写回合集名，不是删合集、也不是改合集。
+
+`app/core/` 未参与这套统一（冻结层）：全部落在 `app/shell/api.py` 与前端显示层。
+
 ## 八、真实数据一览（2026-11-20 采样）
 
 了解「正常长什么样」，排查时才有对照：

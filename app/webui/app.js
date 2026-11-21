@@ -62,7 +62,7 @@
     const names = [];
     pool.forEach((m) => {
       if (m.cat !== catName) return;
-      const item = m.item || '';
+      const item = displayItem(m, state.collections);
       if (item && names.indexOf(item) < 0) names.push(item);
     });
     return ['全部' + catName].concat(names);
@@ -87,6 +87,7 @@
     module.exports = {
       adapt,
       displayTitle,
+      displayItem,
       collectionTag,
       CATEGORY_OPTIONS,
       RAIL_DEFS,
@@ -345,7 +346,7 @@
       const q = state.query.toLowerCase();
       // 搜索匹配三层标题（别名/标题/文件名）+ 子分类，任何一层都能搜到
       list = list.filter((m) => (displayTitle(m) + ' ' + m.name + ' ' + m.alias
-        + ' ' + m.file + ' ' + m.item).toLowerCase().includes(q));
+        + ' ' + m.file + ' ' + displayItem(m, state.collections)).toLowerCase().includes(q));
     }
     if (state.filterItem) {
       const f = state.filterItem;
@@ -354,9 +355,10 @@
         // 「全部X」：X 是二级分类名（枪械/近战…）或一级标题（角色/地图…）
         list = list.filter((m) => m.cat === cat);
       } else if (f === '未指定物品') {
-        list = list.filter((m) => !m.item);
+        list = list.filter((m) => !displayItem(m, state.collections));
       } else {
-        list = list.filter((m) => m.item === f);
+        // 子分类统一走 displayItem：item 为空但属于合集的模组也能被合集名筛出来
+        list = list.filter((m) => displayItem(m, state.collections) === f);
       }
     }
     if (state.filterMode === 'on') list = list.filter((m) => m.enabled);
@@ -418,10 +420,10 @@
       // 角色 / 特感 / 地图：单层列表，物品直接摊平
       const items = ['全部' + def.title];
       all.forEach((m) => {
-        const it = m.item || '';
+        const it = displayItem(m, state.collections);
         if (it && items.indexOf(it) < 0) items.push(it);
       });
-      const unspecified = all.filter((m) => !m.item);
+      const unspecified = all.filter((m) => !displayItem(m, state.collections));
       if (unspecified.length) items.push('未指定物品');
       groups = [{ key: def.title, items, flat: true }];
     }
@@ -507,11 +509,12 @@
         const matched = pool.filter((m) => m.cat === catName);
         count = matched.length || pool.length;
       } else if (isUnset) {
-        count = pool.filter((m) => !m.item).length;
+        count = pool.filter((m) => !displayItem(m, state.collections)).length;
       } else {
-        count = pool.filter((m) => m.item === name).length;
+        count = pool.filter((m) => displayItem(m, state.collections) === name).length;
       }
-      const hasOn = !isAll && pool.some((m) => m.item === name && m.enabled);
+      const hasOn = !isAll && pool.some(
+        (m) => displayItem(m, state.collections) === name && m.enabled);
       return `<button class="filter-row ${nested ? 'is-nested' : ''} ${active ? 'active' : ''}"
                 type="button" data-item="${esc(name)}">
           <span class="item-name">${esc(name)}</span>
@@ -620,6 +623,93 @@
     renderInspector();
   }
 
+  /** 「修改分类」两级编辑：一级分类 → 子分类（可留空/手填）。
+
+      子分类就是「分类 → 子分类」的第二层：地图下它是合集名，角色下它是
+      Ellis/Nick…。写库只走 `set_category`（写 category/item、置 pinned），
+      **绝不回写 collections** —— 那个是工坊结构，不可再生。
+  */
+  async function editCategory(m) {
+    const shown = displayTitle(m);
+    const oldCat = m.cat;
+    const oldRawItem = m.item || '';
+    const oldSub = displayItem(m, state.collections);
+
+    const picked = await selectDialog({
+      title: '修改分类',
+      text: `为《${shown}》指定一级分类，下一步再给子分类。\n\n`
+          + '手工指定后会标记为「已固定」，重扫不再改它。',
+      options: CATEGORY_OPTIONS.map((c) => ({
+        value: c, label: c, hint: c === m.cat ? '当前' : '',
+      })),
+      confirm: '下一步：子分类',
+    });
+    if (picked === null) return;
+
+    // 该分类下已有的子分类 —— 当成「可以填什么」的提示，不做下拉
+    const existing = [];
+    MODS.forEach((x) => {
+      if (x.cat !== picked) return;
+      const it = displayItem(x, state.collections);
+      if (it && existing.indexOf(it) < 0) existing.push(it);
+    });
+
+    const item = await textDialog({
+      title: '子分类',
+      text: `《${shown}》的一级分类是「${picked}」。\n\n`
+          + '子分类用来再分一层（地图 → 某张图 / 角色 → Ellis）。留空 = 不细分。'
+          + (existing.length
+              ? `\n\n「${picked}」下已有：${existing.slice(0, 8).join(' / ')}`
+              : ''),
+      // 换了分类就不要再沿用旧的子分类（旧值多半属于别的分类）
+      value: picked === oldCat ? oldSub : '',
+      placeholder: existing[0] || '留空 = 不细分',
+      confirm: '保存分类',
+    });
+    if (item === null) return;
+
+    const res = await window.bridge.set_category(m.file, picked, item);
+    if (!res || !res.ok) {
+      await infoDialog({ title: '无法修改分类', tone: 'danger',
+                         text: (res && res.error) || '写入失败' });
+      return;
+    }
+
+    // 本地同步成与后端一致的语义：首次覆盖才捕获「识别值」
+    if (!m.pinned) { m.autoCat = oldCat; m.autoItem = oldRawItem; }
+    m.pinned = true;
+    m.cat = picked;
+    m.item = item;
+    renderFilters(); renderGrid(); renderInspector();
+    toast(item ? `分类已改为「${picked} / ${item}」` : `分类已改为「${picked}」`);
+  }
+
+  /** 把子分类归回工坊合集名（用户改过之后的反悔入口）。 */
+  async function revertToCollection(m) {
+    const coll = m.coll ? state.collections[m.coll] : null;
+    const name = coll ? (coll.name || '').trim() : '';
+    if (!name) return;
+    const ok = await confirmDialog({
+      title: '归回工坊合集',
+      tone: 'question',
+      text: `把《${displayTitle(m)}》的子分类改回工坊合集名「${name}」？\n\n`
+          + '只改这个模组的分类字段，不会改动合集本身。',
+      confirm: '归回',
+    });
+    if (!ok) return;
+    const res = await window.bridge.set_category(m.file, m.cat, name);
+    if (!res || !res.ok) {
+      await infoDialog({ title: '无法归回', tone: 'danger',
+                         text: (res && res.error) || '写入失败' });
+      return;
+    }
+    if (!m.pinned) { m.autoCat = m.cat; m.autoItem = m.item || ''; }
+    m.pinned = true;
+    m.item = name;
+    renderFilters(); renderGrid(); renderInspector();
+    toast('子分类已归回合集「' + name + '」');
+  }
+
   /** 模组详情下方「更多」折叠块。
 
       **始终渲染**（用户要求）：200 条里只有 6 条属于合集，但「没有合集」
@@ -636,11 +726,25 @@
     // 摘要只在真有合集时出现；没有合集就别在折叠条上写「合集 · 0 个部件」
     const hint = coll ? `<span class="more-hint">合集 · ${files.length} 个部件</span>` : '';
 
-    let body;
+    // 子分类：用户只看到「分类 → 子分类」一套层级。地图下它就是合集名，
+    // item 为空时只读回落到合集名（不写库）。
+    const sub = displayItem(m, state.collections);
+    const collName = coll ? (coll.name || '').trim() : '';
+    const differs = !!(collName && sub && sub !== collName);
+    let body = `<div class="more-row">
+        <span class="k">子分类</span>
+        <span class="v" title="${esc(sub || '未指定')}">${esc(sub || '未指定')}</span>
+        <button class="link-btn" type="button" id="insEditSub">修改</button>
+      </div>`;
+    if (differs) {
+      body += `<p class="more-note">当前按用户值「${esc(sub)}」显示，与工坊合集名
+        「${esc(collName)}」不同。<button class="link-btn" type="button"
+        id="insRevertColl">归回工坊合集</button></p>`;
+    }
+
     if (!coll) {
-      body = `<p class="more-note">不属于任何合集。</p>
-        <p class="more-note dim">合集在「导入工坊合集」时随下载一起建立，
-        这里不提供手工归组 —— 归属请用下面的子分类。</p>`;
+      body += `<p class="more-note dim">不属于任何合集。合集在「导入工坊合集」时
+        随下载一起建立，这里不提供手工归组 —— 归属请用上面的子分类。</p>`;
     } else {
       const parts = files.map((f) => {
         const mm = MODS.find((x) => x.file === f);
@@ -657,7 +761,7 @@
           + (cur ? '<span class="coll-here">当前</span>' : '')
           + '</li>';
       }).join('');
-      body = `<div class="coll-head">
+      body += `<div class="coll-head">
             <span class="coll-title">${esc(coll.name || '未命名合集')}</span>
             ${coll.workshop_id
               ? `<button class="link-btn" type="button" id="insCollWs">工坊页</button>` : ''}
@@ -685,7 +789,8 @@
     // 分类行：用户手工改过分类时（autoCat !== null），
     // 把「用户设的分类」作为主值，把「管理器识别到的」置灰附在下面 ——
     // 让用户看得见自己覆盖掉了什么，而不是悄悄消失。
-    const userCat = m.item ? `${m.cat} / ${m.item}` : m.cat;
+    const subItem = displayItem(m, state.collections);
+    const userCat = subItem ? `${m.cat} / ${subItem}` : m.cat;
     const autoCatText = m.autoCat === null
       ? ''
       : (m.autoItem ? `${m.autoCat} / ${m.autoItem}` : (m.autoCat || '未分类'));
@@ -849,28 +954,16 @@
     // 渲染在详情下方的「更多」里（renderMoreBlock）——
     // 原来那条「归入合集」只弹一句「尚未迁移」，是假动作，已删。
     const moreCatBtn = $('[data-more="category"]');
-    if (moreCatBtn) moreCatBtn.addEventListener('click', async () => {
+    if (moreCatBtn) moreCatBtn.addEventListener('click', () => {
       $('#insMoreMenu').hidden = true;
-      // 走真后端 library.set_category（会把 pinned 置 True，重扫不再覆盖）。
-      const picked = await selectDialog({
-        title: '修改分类',
-        text: `为《${shown}》指定分类。手工指定后会标记为「已固定」，重扫不再改它。`,
-        options: CATEGORY_OPTIONS.map((c) => ({
-          value: c, label: c, hint: c === m.cat ? '当前' : '',
-        })),
-        confirm: '保存分类',
-      });
-      if (picked === null) return;
-      const res = await window.bridge.set_category(m.file, picked, m.item || '');
-      if (!res || !res.ok) {
-        await infoDialog({ title: '无法修改分类', tone: 'danger',
-                           text: (res && res.error) || '写入失败' });
-        return;
-      }
-      m.cat = picked;
-      renderFilters(); renderGrid(); renderInspector();
-      toast('分类已改为「' + picked + '」');
+      editCategory(m);
     });
+
+    // 「更多」里的子分类入口与归回按钮
+    const editSubBtn = $('#insEditSub');
+    if (editSubBtn) editSubBtn.addEventListener('click', () => editCategory(m));
+    const revertBtn = $('#insRevertColl');
+    if (revertBtn) revertBtn.addEventListener('click', () => revertToCollection(m));
 
     // 「更多」折叠块的展开状态要跨重渲染保留：
     // 拨一下开关就会 renderInspector()，不记住的话刚展开的块会自己收回去。
@@ -992,6 +1085,20 @@
       编号来自 `collections[cid].files` 的顺序（工坊里的部件顺序），
       不从后端加字段：这只是展示，没必要进接口契约。
   */
+  /** 子分类（显示用）：分类器/用户给的 item，为空时**只读**回落到合集名。
+
+      §5 的概念统一：用户只看到一套「分类 → 子分类」。地图下一个合集就是
+      这张地图的向下细分 —— 真实数据里 `item` 与合集名本来就一致；
+      `item` 为空但属于合集时回落到合集名，**不写库**（collections 是工坊
+      结构的记录，不能被 item 反盖）。
+  */
+  function displayItem(m, colls) {
+    const own = (m.item || '').trim();
+    if (own) return own;
+    const coll = m.coll ? (colls || {})[m.coll] : null;
+    return coll ? (coll.name || '').trim() : '';
+  }
+
   function collectionTag(m, colls) {
     const coll = m.coll ? (colls || {})[m.coll] : null;
     if (!coll) return '';

@@ -56,6 +56,12 @@ window.__e2e = null;
     out.ok = false;
     out.error = String(e);
   }
+  // 等界面真的把卡片渲染出来再读 —— 首次渲染要把 200 张缩略图转成
+  // data URI，比 bootstrap 慢一拍。原来这里是「读完就报」，偶尔会读到 0。
+  for (let i = 0; i < 40; i += 1) {
+    if (document.querySelectorAll('.mod-card').length) break;
+    await new Promise((r) => setTimeout(r, 200));
+  }
   out.cards = document.querySelectorAll('.mod-card').length;
   out.brand = (document.querySelector('.brand-name') || {}).textContent || null;
   window.__e2e = JSON.stringify(out);

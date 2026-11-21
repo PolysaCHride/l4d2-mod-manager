@@ -266,12 +266,38 @@ check('三层都缺也不会返回 undefined', () => {
   eq(app.displayTitle({}), '');
 });
 
-console.log('\n卡片合集标签（合集名 (x/x)）');
+console.log('\n子分类统一（item 空时回落到合集名）');
 
+// 合集表夹具：两个章节共用
 const COLLS = {
   ws_1: { name: 'The Bloody Moors', workshop_id: '1',
           files: ['a.vpk', 'b.vpk', 'c.vpk'] },
 };
+
+
+check('item 有值时就是子分类', () => {
+  eq(app.displayItem({ item: 'Ellis', coll: 'ws_1' }, COLLS), 'Ellis');
+});
+
+check('item 为空但属于合集 → 回落到合集名', () => {
+  eq(app.displayItem({ item: '', coll: 'ws_1' }, COLLS), 'The Bloody Moors');
+});
+
+check('item 为空白也算空', () => {
+  eq(app.displayItem({ item: '   ', coll: 'ws_1' }, COLLS), 'The Bloody Moors');
+});
+
+check('item 为空且不属于合集 → 空串', () => {
+  eq(app.displayItem({ item: '', coll: '' }, COLLS), '');
+});
+
+check('回落不修改原对象（只读兜底）', () => {
+  const m = { item: '', coll: 'ws_1' };
+  app.displayItem(m, COLLS);
+  eq(m.item, '', 'displayItem 不能改 m.item');
+});
+
+console.log('\n卡片合集标签（合集名 (x/x)）');
 
 check('合集成员显示名称与序号', () => {
   eq(app.collectionTag({ coll: 'ws_1', file: 'b.vpk', pinned: false }, COLLS),

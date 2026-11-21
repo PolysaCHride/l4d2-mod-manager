@@ -169,6 +169,71 @@ window.__coll = null;
       ok(out.staysOpen, '重渲染后「更多」被收起来了');
     }
 
+    // ── 子分类编辑（合集统一为子分类，§5）──
+    // 会真的写一次 library.json（改子分类 → 校验 → 归回），最后还原 pinned。
+    const subBtn = document.querySelector('#insEditSub');
+    out.hasSubRow = !!subBtn;
+    ok(!!subBtn, '「更多」里没有子分类行');
+    if (subBtn) {
+      subBtn.click();
+      await sleep(500);
+      // 一级分类对话框：选中当前分类后点「下一步」
+      const catInput = [...document.querySelectorAll('#modal-host input[name="dlgChoice"]')]
+        .find((i) => i.value === withColl.category);
+      ok(!!catInput, '分类对话框里没有当前分类选项：' + withColl.category);
+      if (catInput) catInput.click();
+      const next1 = [...document.querySelectorAll('#modal-host [data-btn]')]
+        .find((b) => b.dataset.btn === '1');
+      next1.click();
+      await sleep(500);
+
+      const subInput = document.querySelector('#dlgInput');
+      ok(!!subInput, '第二步没有子分类输入框');
+      ok(subInput.value === (cols[withColl.collection] || {}).name,
+         '子分类没有预填当前合集名：' + JSON.stringify(subInput.value));
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype, 'value').set;
+      setter.call(subInput, '沼泽测试');
+      subInput.dispatchEvent(new Event('input', { bubbles: true }));
+      const save2 = [...document.querySelectorAll('#modal-host [data-btn]')]
+        .find((b) => b.dataset.btn === '1');
+      save2.click();
+      await sleep(1000);
+
+      // 卡片标签应变成用户值、且不带 (x/x)
+      out.tagAfterEdit = (document.querySelector('.mod-card.selected .mod-coll') || {}).textContent || '';
+      ok(out.tagAfterEdit === '沼泽测试',
+         '改完子分类后卡片标签不是用户值：' + JSON.stringify(out.tagAfterEdit));
+      out.revertBtn = !!document.querySelector('#insRevertColl');
+      ok(out.revertBtn, '与合集名不一致时没有「归回工坊合集」入口');
+
+      // 归回
+      const rev = document.querySelector('#insRevertColl');
+      if (rev) {
+        rev.click();
+        await sleep(500);
+        const okBtn = [...document.querySelectorAll('#modal-host [data-btn]')]
+          .find((b) => b.dataset.btn === '1');
+        okBtn.click();
+        await sleep(1000);
+      }
+      const b4 = await window.bridge.bootstrap();
+      const m4 = b4.mods.find((x) => x.file === withColl.file);
+      out.itemAfterRevert = m4 ? m4.item : null;
+      ok(out.itemAfterRevert === (cols[withColl.collection] || {}).name,
+         '归回后 item 不是合集名：' + JSON.stringify(out.itemAfterRevert));
+      const tagBack = (document.querySelector('.mod-card.selected .mod-coll') || {}).textContent || '';
+      out.tagAfterRevert = tagBack;
+      ok(/\(\d+\/\d+\)$/.test(tagBack), '归回后卡片标签没有恢复 (x/x)：' + JSON.stringify(tagBack));
+
+      // 收尾：清掉 pinned / auto_*，把记录还原成采样前状态
+      await window.bridge.restore_auto_category(withColl.file);
+      const b5 = await window.bridge.bootstrap();
+      const m5 = b5.mods.find((x) => x.file === withColl.file);
+      out.pinnedAfterCleanup = m5 ? !!m5.pinned : null;
+      ok(!out.pinnedAfterCleanup, '收尾没把 pinned 清掉');
+    }
+
     // 没有合集的模组**也要**有「更多」块，正文写「不属于任何合集」
     const noColl = b.mods.find((m) => !m.collection);
     if (noColl) {
@@ -241,6 +306,9 @@ def run(win):
     print("[coll] 详情：summary=%r title=%r 部件=%s 当前=%s 展开保留=%s"
           % (out.get("summary"), out.get("title"), out.get("parts"),
              out.get("current"), out.get("staysOpen")), flush=True)
+    print("[coll] 子分类：行=%s 改后卡片=%r 归回后=%r 归回按钮=%s 收尾清 pinned=%s"
+          % (out.get("hasSubRow"), out.get("tagAfterEdit"), out.get("tagAfterRevert"),
+             out.get("revertBtn"), not out.get("pinnedAfterCleanup")), flush=True)
     errors = out.get("errors") or []
     if errors:
         for e in errors:

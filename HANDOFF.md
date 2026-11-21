@@ -126,10 +126,10 @@ python -m venv .venv
 ### 3.3 验证
 
 ```powershell
-# 业务逻辑单测 + 前后端契约测试（67 个，用隔离临时目录，不碰真实游戏目录）
+# 业务逻辑单测 + 前后端契约测试（79 个，用隔离临时目录，不碰真实游戏目录）
 .\.venv\Scripts\python -X utf8 -m unittest discover -s tests -v
 
-# 前端契约测试单独跑（21 项，Node 直跑，不需要 Python）
+# 前端契约测试单独跑（39 项，Node 直跑，不需要 Python）
 node tests\adapt_contract.js
 
 # 桥接层自测（不需要窗口，用假 window 验证事件推送）
@@ -142,7 +142,8 @@ node --check app/webui/bridge.js
 # 端到端（真实数据 + 真实桥接 + 真实界面）
 .\.venv\Scripts\python -X utf8 docs\redesign\proto\e2e_check.py
 
-# 合集展示（A-1）：详情「更多」里的合集、部件数、体积、展开状态
+# 合集/子分类：卡片 (x/5) 标签、「更多」常驻与部件列表、
+# 两级改分类 + 归回工坊合集（会真写一次再还原）
 .\.venv\Scripts\python -X utf8 docs\redesign\proto\coll_check.py
 
 # 启停写盘验证（先记原状态，toggle 两次回滚）
@@ -763,6 +764,40 @@ def progress(text, done=0, current=""):
 | ~~B-3 预览图真下载~~ | ✅ **实测后关闭**：补下载只值 6/200 张图，见 §8.7 |
 | B-4 合集反查 | 仍未移植；新 UI 的下载流程直接支持粘贴合集链接，主路径已覆盖（见 `docs/LEGACY_UI.md` §2.3） |
 
+### 8.9 第八轮（2026-11-21）：新界面收口
+
+用户逐条确认的七项，全部落地。**旧界面从此不再发版。**
+
+| 项 | 结果 |
+|---|---|
+| §1 归档旧界面 | ✅ `git tag archive/legacy-ui-2026-11-21`；`app/ui/` 与 `main.py` 原地保留 + ARCHIVED 注释；`-Target` 收敛为 `web`/`legacy`，删掉 `both`；legacy 构建先打印「不保证可用、不再发版」 |
+| §2 冒烟默认开 | ✅ `-Target web` 与 `-VerifyOnly` 默认跑冒烟，`-NoSmoke` 关掉（会打印「已跳过冒烟」）；失败非零退出（实测拿掉 exe → EXIT=1） |
+| §6 标题三层兜底 | ✅ `displayTitle()`：别名 → 标题 → **完整 vpk 文件名**；卡片/详情/搜索/部件列表统一走它；与 core 的 `store.mod_display_name()` 结果一致（契约测试锁死） |
+| §6 别名入口 | ✅ 底部功能栏图标改为带文字的「自定义标题」；编辑改用自绘 `textDialog`（`window.prompt` 在 WebView2 里不可靠） |
+| §4 「更多」常驻 | ✅ 无合集时显示「不属于任何合集」；折叠条不再显示「合集 · 0 个部件」 |
+| §3 卡片合集标签 | ✅ `The Bloody Moors (3/5)`，序号前端算（`collections[cid].files`），不给 `_to_mod` 加字段 |
+| §5 合集=子分类 | ✅ `displayItem()`：`item` 为空时**只读**回落到合集名；「修改分类」升级为两级（分类 → 子分类，可手填）；新增「归回工坊合集」；**不写 collections** |
+| §7 缓存引用清理 | ✅ `clean_cache` 增加 `previews/` 孤儿清理（只删没被任何记录引用的文件）。实跑：41 个文件里 10 个被引用、31 个孤儿 → 释放 **31.3MB**，二次执行 0 字节 |
+
+**为什么要清理 previews**：工坊缩略图下载到 `data/previews/`，记录里的 `preview`
+存绝对路径。删模组/重导入后这些图就成孤儿，而它既不在 `tmp/` 也不在
+`thumb-cache/`，原来的 `clean_cache` 从来没碰过。用户主动点「清理缓存」才动，
+启动时不扫。
+
+> ⚠️ 任务书里写的是「200 条记录 0 条引用」，实测是 **10 条引用**。
+> 实现按引用比对（绝对路径 + `normcase`），所以两种情况下都不会误删 ——
+> 这也说明「先量再删」比照抄数字可靠。
+
+#### 合集与子分类的关系（本轮最重要的概念统一）
+
+用户视角只有一套层级：**分类 → 子分类**。地图下一个合集就是这张图的向下细分。
+
+- `item` 是子分类（可改）；`collection` 是工坊结构（不可改、界面不写）
+- `item` 为空且属于合集时，前端**显示层**回落到合集名；API 层绝不回填
+- 用户改子分类只写 `category`/`item`；「归回工坊合集」= 把 `item` 写回合集名
+
+详见 `docs/DATA_SCHEMA.md` §7.4。
+
 ### 8.5 第四轮（分类器修复 + 组级互斥开关）
 
 | 项 | 结果 |
@@ -837,14 +872,36 @@ def progress(text, done=0, current=""):
 
 ---
 
+### 9.5 `previews/` 只能按引用删，不能整目录 rmtree
+
+`data/previews/` 里既有被引用的缩略图，也有孤儿。判断依据只能是
+**记录的 `preview` 绝对路径**（`normcase` 折叠大小写），不能用文件名规则
+（如「跟 workshop_id 同名」）—— 实测 10 条引用里就有不按 id 命名的。
+
+`clean_cache` 里因此分成两类：`tmp/`、`thumb-cache/` 整目录 rmtree，
+`previews/` 逐个文件比对后再删。不要图省事把 previews 也塞进
+`targets` —— 那会把正在用的预览图全删掉。
+
+### 9.6 合集名不能在 API 层回填 `item`
+
+`displayItem()` 的「item 为空 → 回落合集名」只能发生在前端**显示层**。
+如果哪天有人觉得「反正 API 层也能算」，把 `_to_mod` 的 `item` 填成合集名：
+
+- 重扫会把这个值当成用户值（`pinned` 之后不再更新）
+- `auto_item` 会记录一个用户从没选过的值，`restore_auto_category` 之后
+  分类回到合集名而不是分类器结果
+- 「归回工坊合集」与「恢复自动」两个动作的语义会混在一起
+
+契约测试 `test_item_is_never_filled_from_collection` 就是防这一手。
+
 ## 10. 交接检查清单
 
 接手第一周建议按这个顺序做：
 
 - [ ] 读本文档第 0、5、6 节
 - [ ] `pip install -r requirements.txt`，跑起 `main_web.py`
-- [ ] 跑 `python -m unittest discover -s tests -v`，确认 **67 个全绿**
-- [ ] 跑 `node tests/adapt_contract.js`，确认 **21 项**全过
+- [ ] 跑 `python -m unittest discover -s tests -v`，确认 **79 个全绿**
+- [ ] 跑 `node tests/adapt_contract.js`，确认 **39 项**全过
 - [ ] 跑 `python -X utf8 docs/redesign/proto/e2e_check.py`，确认 `mode: live`
 - [ ] 打开一次 DevTools（`L4D2_DEBUG=1`），看有没有 console 错误
 - [ ] 双击一个模组，**去 `addonlist.txt` 确认真的写了 `0`/`1`**
@@ -892,20 +949,18 @@ def progress(text, done=0, current=""):
 **业务逻辑是干净的，设计文档是好懂的，脏的是中间那层 —— 从演示页长出来、边调试边打补丁的前端，以及从来没被写下来的「怎么跑、怎么测、怎么发」。**
 
 已清理的：写操作接真实后端、危险脚本加警告、垃圾文件清理、291MB 缓存删除、基线提交。
-本期（2026-11-20 第二轮）又推进了三件系统性工作：
+2026-11-21 收口之后的状态：
 
 | 项 | 结果 |
 |---|---|
-| **发布流程** | `build_release.ps1` 支持新栈；7-Zip 三重校验；缺组件构建**直接失败**而不是静默产出残缺包 |
-| **契约保护** | Node 侧 23 项 `adapt()` 契约 + 挂进 unittest；前后端字段契约现在两层都有断言 |
-| **假动作** | 又找出并修复 5 处；`game.unknown` 真正接到写入闸门上 |
+| **发布流程** | 只有新界面一条路；7-Zip 三重校验；缺组件**直接失败**；冒烟默认开启（`-NoSmoke` 关） |
+| **契约保护** | Python 79 项 + Node 39 项，字段契约、标题兜底、合集/子分类三层都有断言 |
+| **实机可验** | `e2e_check.py` / `coll_check.py` / `toggle_check.py` 都跑真实库，不需要人眼看 |
+| **界面收口** | 卡片 `合集名 (x/5)`、详情「更多」常驻、标题三层兜底、自定义标题入口可见 |
+| **数据卫生** | `clean_cache` 清理 previews 孤儿（实测 31.3MB），重启不自动扫 |
 
-还剩的（按建议顺序）：
+剩下的（都不阻塞发版）：
 
-1. **`adopt_all` 接线**（`LEGACY_UI.md` §2.6）—— 前端「整理」按钮承诺的是
-   `adopt_all`，实际调的是 `rescan`。这是**语义不符**，不是缺功能。
-2. 预览图批量下载 / 订阅迁移（方案已给，见 §2.2 / §2.4）
-3. P2 整洁项（`_fmt_size` 三份、`hiddenimports` 15 项多余）
-
-**判断改得对不对，现在有三条独立命令**，不需要打开界面：
-`unittest`（36 项）、`node tests/adapt_contract.js`（23 项）、`e2e_check.py`（真实数据）。
+1. **B-4 合集反查**：不做，代码随旧界面归档保留（`LEGACY_UI.md` §2.3）
+2. `chapters` 遗留字段：保留（唯一的地图章节线索）
+3. `title_locked` 手工解锁入口：暂不做（别名已能覆盖显示）
