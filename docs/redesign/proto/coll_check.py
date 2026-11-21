@@ -83,6 +83,47 @@ window.__coll = null;
     if (rail) rail.click();
     await sleep(700);
 
+    // 卡片上的合集标签：成员带 (x/N)，非成员不带
+    const tagOf = (c) => (c.querySelector('.mod-coll') || {}).textContent || '';
+    const cards = [...document.querySelectorAll('.mod-card')];
+    out.cards = cards.length;
+    const memberFiles = [];
+    Object.keys(cols).forEach((cid) => (cols[cid].files || []).forEach((f) => memberFiles.push(f)));
+    let tagged = 0, untagged = 0;
+    cards.forEach((c) => {
+      const f = c.dataset.mod || '';
+      const t = tagOf(c);
+      if (memberFiles.indexOf(f) >= 0) {
+        tagged += 1;
+        ok(t.length > 0, '合集成员卡片没有标签：' + f);
+        const expect = (() => {
+          for (const cid of Object.keys(cols)) {
+            const i = (cols[cid].files || []).indexOf(f);
+            if (i >= 0) return cols[cid].name + ' (' + (i + 1) + '/' + cols[cid].files.length + ')';
+          }
+          return null;
+        })();
+        ok(t === expect, '标签不对：' + f + ' 期望 ' + JSON.stringify(expect) + ' 实际 ' + JSON.stringify(t));
+      } else {
+        untagged += 1;
+        ok(t === '', '非合集成员不该有标签：' + f + ' → ' + JSON.stringify(t));
+      }
+    });
+    out.tagged = tagged;
+    out.untagged = untagged;
+    ok(tagged > 0, '一张带标签的卡片都没有');
+
+    // 点标签本身也要能选中卡片（新元素不能吞点击）
+    const oneTag = [...document.querySelectorAll('.mod-card')]
+      .map((c) => c.querySelector('.mod-coll')).find(Boolean);
+    if (oneTag) {
+      oneTag.click();
+      await sleep(500);
+      out.tagClickSelects = !!document.querySelector('.mod-card.selected');
+      ok(out.tagClickSelects, '点合集标签没有选中卡片（吞了点击）');
+    }
+
+
     const card = [...document.querySelectorAll('.mod-card')]
       .find((c) => (c.dataset.mod || '') === withColl.file);
     ok(!!card, '网格里找不到卡片：' + withColl.file);
@@ -194,6 +235,9 @@ def run(win):
     print("[coll] mode=%s collections=%s 有归属的模组=%d"
           % (out.get("mode"), out.get("collections"), out.get("modsWithColl", 0)),
           flush=True)
+    print("[coll] 卡片：共 %s 张，带合集标签 %s 张，不带 %s 张，点标签能选中卡片=%s"
+          % (out.get("cards"), out.get("tagged"), out.get("untagged"),
+             out.get("tagClickSelects")), flush=True)
     print("[coll] 详情：summary=%r title=%r 部件=%s 当前=%s 展开保留=%s"
           % (out.get("summary"), out.get("title"), out.get("parts"),
              out.get("current"), out.get("staysOpen")), flush=True)

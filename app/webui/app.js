@@ -87,6 +87,7 @@
     module.exports = {
       adapt,
       displayTitle,
+      collectionTag,
       CATEGORY_OPTIONS,
       RAIL_DEFS,
       RAILS,
@@ -550,6 +551,7 @@
 
     grid.innerHTML = list.map((m) => {
       const shown = displayTitle(m);
+      const collTag = collectionTag(m, state.collections);
       return `<article class="mod-card ${m.id === state.selectedId ? 'selected' : ''} ${m.enabled ? 'is-on' : ''}" data-mod="${m.id}" tabindex="0" title="单击查看详情 · ${m.enabled ? '双击停用' : '双击启用'}">
         <div class="mod-thumb">
           <img src="${esc(m.img)}" alt="${esc(shown)}" loading="lazy">
@@ -558,6 +560,7 @@
         <div class="mod-copy">
           <div class="mod-name">${esc(shown)}</div>
           ${m.alias ? `<div class="mod-alias">${esc(m.name)}</div>` : ''}
+          ${collTag ? `<div class="mod-coll" title="${esc(collTag)}">${esc(collTag)}</div>` : ''}
           <div class="mod-foot"><span>${fmtSize(m.size)}</span><span>${fmtAgo(m.added)}</span></div>
         </div>
       </article>`;
@@ -976,6 +979,29 @@
       if (t) return t;
     }
     return '';
+  }
+
+  /** 卡片上的合集标签：`合集名 (3/5)`。返回 '' 表示这一行不渲染。
+
+      `colls` 显式传进来（而不是直接读 state）：Node 侧契约测试要调它，
+      而 state 是 const、在 test hook 之后才初始化。
+
+      **覆盖优先**：用户把子分类改成了别的名字（pinned 且 item ≠ 合集名）时，
+      只显示用户值、不带编号 —— 用户既然明确改过归属，就别再拿工坊的序号压上去。
+
+      编号来自 `collections[cid].files` 的顺序（工坊里的部件顺序），
+      不从后端加字段：这只是展示，没必要进接口契约。
+  */
+  function collectionTag(m, colls) {
+    const coll = m.coll ? (colls || {})[m.coll] : null;
+    if (!coll) return '';
+    const name = (coll.name || '').trim();
+    const files = coll.files || [];
+    const userItem = m.pinned ? (m.item || '').trim() : '';
+    if (userItem && userItem !== name) return userItem;
+    const label = name || '未命名合集';
+    const idx = files.indexOf(m.file);
+    return idx >= 0 ? label + ' (' + (idx + 1) + '/' + files.length + ')' : label;
   }
 
   async function loadFromBridge() {

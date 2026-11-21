@@ -315,6 +315,13 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
   word-break: break-word;
 }
 .mod-alias { margin-top: 2px; color: #6f7a70; font-size: 9.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 合集标签：模组名下面、体积那一行上面的弱信息行。
+   同一张图的多个部件标题完全一样，这一行是唯一能区分它们的线索。 */
+.mod-coll {
+  margin-top: 2px;
+  color: #5b655c; font-size: 8.5px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .mod-foot {
   display: flex; align-items: center; justify-content: space-between;
   margin-top: 7px; padding-top: 6px; border-top: 1px solid #202622;
@@ -753,6 +760,7 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 }
 .mod-card.is-on .mod-name { color: var(--card-on-text); font-weight: 700; }
 .mod-card.is-on .mod-alias { color: var(--card-on-meta); }
+.mod-card.is-on .mod-coll { color: var(--card-on-meta); opacity: .75; }
 .mod-card.is-on .mod-foot {
   border-top-color: var(--card-on-divider);
   color: var(--card-on-meta);

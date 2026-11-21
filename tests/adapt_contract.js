@@ -266,6 +266,49 @@ check('三层都缺也不会返回 undefined', () => {
   eq(app.displayTitle({}), '');
 });
 
+console.log('\n卡片合集标签（合集名 (x/x)）');
+
+const COLLS = {
+  ws_1: { name: 'The Bloody Moors', workshop_id: '1',
+          files: ['a.vpk', 'b.vpk', 'c.vpk'] },
+};
+
+check('合集成员显示名称与序号', () => {
+  eq(app.collectionTag({ coll: 'ws_1', file: 'b.vpk', pinned: false }, COLLS),
+     'The Bloody Moors (2/3)');
+});
+
+check('首尾成员序号正确', () => {
+  eq(app.collectionTag({ coll: 'ws_1', file: 'a.vpk', pinned: false }, COLLS),
+     'The Bloody Moors (1/3)');
+  eq(app.collectionTag({ coll: 'ws_1', file: 'c.vpk', pinned: false }, COLLS),
+     'The Bloody Moors (3/3)');
+});
+
+check('不属于合集 → 不渲染（返回空串）', () => {
+  eq(app.collectionTag({ coll: '', file: 'a.vpk', pinned: false }, COLLS), '');
+});
+
+check('合集里找不到这个文件 → 只显示合集名，不编序号', () => {
+  eq(app.collectionTag({ coll: 'ws_1', file: 'zzz.vpk', pinned: false }, COLLS),
+     'The Bloody Moors');
+});
+
+check('用户改过子分类（pinned 且不同于合集名）→ 只显示用户值，不带编号', () => {
+  eq(app.collectionTag({ coll: 'ws_1', file: 'a.vpk', pinned: true, item: '沼泽地图' }, COLLS),
+     '沼泽地图');
+});
+
+check('pinned 但子分类与合集名相同 → 仍显示编号', () => {
+  eq(app.collectionTag({ coll: 'ws_1', file: 'a.vpk', pinned: true,
+                         item: 'The Bloody Moors' }, COLLS),
+     'The Bloody Moors (1/3)');
+});
+
+check('空 collections 不应崩', () => {
+  eq(app.collectionTag({ coll: 'ws_1', file: 'a.vpk' }, {}), '');
+});
+
 console.log('\n写入闸门（game.unknown）');
 
 check('running=true 时禁止写入', () => {
