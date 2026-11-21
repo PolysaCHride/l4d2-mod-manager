@@ -757,8 +757,61 @@ class Api(object):
         except Exception as exc:
             return _err(exc)
 
+    def _clean_orphan_previews(self):
+        """删掉 `data/previews/` 里**没有任何模组记录引用**的图片，返回释放字节数。
+
+        为什么需要：`download_and_import` 会把工坊缩略图落到
+        `data/previews/<id>.jpg`，而记录的 `preview` 存的是绝对路径。
+        用户删掉模组、或重新导入之后，这些图就成了孤儿 ——
+        实测 41 个文件 / 约 38MB，200 条记录里 0 条引用。
+        它既不在 `tmp/` 也不在 `thumb-cache/`，所以 before 这段代码
+        `clean_cache` 从来碰不到这里。
+
+        **只在用户主动「清理缓存」时执行**，不在启动时自动跑。
+
+        安全约束：
+          - 只删文件（目录、链接一律跳过），`previews/` 目录本身保留
+          - 路径必须真的落在 previews 目录内（`abspath` + 前缀比对，防 `..`）
+          - 引用比对用绝对路径 + `normcase`（Windows 大小写不敏感）
+        """
+        if self._store is None:
+            return 0
+        d = getattr(self._store, "previews_dir", "")
+        if not d or not os.path.isdir(d):
+            return 0
+        base = os.path.normcase(os.path.abspath(d))
+        prefix = base + os.sep
+
+        referenced = set()
+        for rec in self._store.mods().values():
+            p = rec.get("preview") or ""
+            if p:
+                referenced.add(os.path.normcase(os.path.abspath(p)))
+
+        freed = 0
+        try:
+            names = os.listdir(d)
+        except OSError:
+            return 0
+        for name in names:
+            full = os.path.join(d, name)
+            if os.path.islink(full) or not os.path.isfile(full):
+                continue
+            ap = os.path.normcase(os.path.abspath(full))
+            if ap != base and not ap.startswith(prefix):
+                continue                      # 防 .. 之类的路径逃逸
+            if ap in referenced:
+                continue                      # 被引用的一个都不能少
+            try:
+                size = os.path.getsize(full)
+                os.remove(full)
+                freed += size
+            except OSError:
+                pass
+        return freed
+
     def clean_cache(self):
-        """清理临时解压目录与缩略图缓存。"""
+        """清理临时解压目录、缩略图缓存，以及 previews 里没人引用的图。"""
         try:
             self._ensure()
             import shutil
@@ -779,6 +832,8 @@ class Api(object):
                         shutil.rmtree(d, ignore_errors=True)
                     except Exception:
                         pass
+            # previews/ 只能按引用文件删，不能整目录 rmtree
+            freed += self._clean_orphan_previews()
             return _ok(freed=freed)
         except Exception as exc:
             return _err(exc)

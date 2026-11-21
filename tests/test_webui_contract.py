@@ -14,9 +14,11 @@
 运行：
     .venv/Scripts/python.exe -m unittest tests.test_webui_contract -v
 """
+import os
 import re
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -214,6 +216,24 @@ class TestToModContract(unittest.TestCase):
             self.assertEqual(frontend, mod_display_name(rec), case)
 
 
+    def test_item_is_never_filled_from_collection(self):
+        """`item` 不许由 `collection` 兜底 —— 兜底只发生在前端显示层。
+
+        §5 的概念统一是「子分类显示时回落到合集名」。如果这里（API 层）
+        就把 item 填成合集名，等于让 collections 覆盖 item，会和
+        auto_item / pinned 打架，而且重扫会把这个假 item 当用户值固化下来。
+        """
+        rec = self._rec(file="a.vpk", collection="ws_189971863")
+        out = self.api._to_mod(rec)
+        self.assertEqual(out["item"], "", "API 层不能拿合集名填 item")
+        self.assertEqual(out["collection"], "ws_189971863", "归属仍要透出")
+
+    def test_item_kept_when_present(self):
+        """有 item 时原样透出，不受所属合集影响。"""
+        rec = self._rec(file="a.vpk", item="Ellis", collection="ws_1")
+        self.assertEqual(self.api._to_mod(rec)["item"], "Ellis")
+
+
 class TestBootstrapShape(unittest.TestCase):
     """bootstrap 的顶层结构是前端启动的契约。"""
 
@@ -342,6 +362,81 @@ class TestSizeFormat(unittest.TestCase):
                          "api 里不该再有私有的 _fmt_size 拷贝")
         self.assertFalse(hasattr(tasks, "_fmt_size"),
                          "tasks 里不该再有私有的 _fmt_size 拷贝")
+
+
+class TestCleanCachePreviews(unittest.TestCase):
+    """`clean_cache` 要清掉 `data/previews/` 里没人引用的图。
+
+    背景：工坊缩略图下载到 previews/，记录里的 `preview` 存绝对路径。
+    删模组/重导入之后这些图就成孤儿 —— 实测 41 个文件 / 38MB、0 条引用，
+    而它既不在 tmp/ 也不在 thumb-cache/，原来的 clean_cache 从来没碰过。
+    """
+
+    def setUp(self):
+        import tempfile
+        from app.core.store import Store
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.store = Store(self._tmp.name)
+        self.previews = self.store.previews_dir
+
+        self.api = Api()
+        self.api._store = self.store      # 跳过 _ensure()，不碰真实 data/
+        self.api._library = None
+
+        patcher = mock.patch("app.shell.api.app_paths.data_dir",
+                             return_value=self._tmp.name)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _touch(self, name, size=10):
+        p = os.path.join(self.previews, name)
+        with open(p, "wb") as f:
+            f.write(b"x" * size)
+        return p
+
+    def test_deletes_only_orphans(self):
+        keep = self._touch("keep.jpg", 100)
+        orphan = self._touch("orphan.jpg", 50)
+        rec = new_mod_record("x.vpk")
+        rec["preview"] = keep
+        self.store.upsert_mod(rec)
+
+        r = self.api.clean_cache()
+        self.assertTrue(r.get("ok"), r)
+        self.assertTrue(os.path.isfile(keep), "被引用的预览图一个都不能少")
+        self.assertFalse(os.path.exists(orphan), "没人引用的预览图应该被删掉")
+        self.assertGreaterEqual(r.get("freed") or 0, 50, "释放字节数要算进去")
+
+    def test_idempotent(self):
+        self._touch("orphan.jpg", 30)
+        self.assertTrue(self.api.clean_cache().get("ok"))
+        r2 = self.api.clean_cache()
+        self.assertTrue(r2.get("ok"), r2)
+        self.assertEqual(r2.get("freed"), 0, "第二次不该再释放任何字节")
+
+    def test_keeps_directories(self):
+        """只删文件：previews 目录本身与子目录都不动。"""
+        sub = os.path.join(self.previews, "sub")
+        os.makedirs(sub, exist_ok=True)
+        inner = os.path.join(sub, "inner.jpg")
+        with open(inner, "wb") as f:
+            f.write(b"x")
+
+        self.assertTrue(self.api.clean_cache().get("ok"))
+        self.assertTrue(os.path.isdir(self.previews), "previews 目录要保留")
+        self.assertTrue(os.path.isfile(inner), "子目录不在清理范围内")
+
+    def test_reference_match_is_case_folded(self):
+        """Windows 上大小写不敏感：记录里存小写也要认得出同一个文件。"""
+        keep = self._touch("Keep.JPG", 20)
+        rec = new_mod_record("x.vpk")
+        rec["preview"] = keep.lower()
+        self.store.upsert_mod(rec)
+
+        self.assertTrue(self.api.clean_cache().get("ok"))
+        self.assertTrue(os.path.isfile(keep), "大小写不同也是同一个文件")
 
 
 if __name__ == "__main__":
