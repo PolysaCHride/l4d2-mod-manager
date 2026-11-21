@@ -1,7 +1,9 @@
 ﻿param(
     [string]$Version = "",
-    # legacy = PySide6 旧栈；web = pywebview + WebView2 新栈（主线）
-    [ValidateSet("legacy", "web", "both")]
+    # web = pywebview + WebView2 新界面，**唯一发布路径**（默认）
+    # legacy = PySide6 旧界面，2026-11-21 已归档：仍能构建，但不保证可用、
+    #          不再发版，只用于查阅/对照。存档标签 archive/legacy-ui-2026-11-21
+    [ValidateSet("legacy", "web")]
     [string]$Target = "web",
     # 跳过打包，只校验现有产物（用于 CI 的 verify 阶段）
     [switch]$VerifyOnly,
@@ -279,6 +281,17 @@ if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
     throw "未找到项目虚拟环境: $python"
 }
 
+if ($Target -eq "legacy") {
+    Write-Host ""
+    Write-Host "==============================================================" -ForegroundColor Yellow
+    Write-Host " 警告：legacy（PySide6 旧界面）已于 2026-11-21 归档" -ForegroundColor Yellow
+    Write-Host "       不保证可用，不再发版 —— 只用于查阅/对照。" -ForegroundColor Yellow
+    Write-Host "       存档标签：archive/legacy-ui-2026-11-21" -ForegroundColor Yellow
+    Write-Host "       新界面请用：.\build_release.ps1" -ForegroundColor Yellow
+    Write-Host "==============================================================" -ForegroundColor Yellow
+    Write-Host ""
+}
+
 if (-not $Version) {
     $Version = Get-ProjectVersion
     Write-Host "版本号取自 packaging/version_info.txt: $Version"
@@ -294,7 +307,6 @@ Assert-7Zip
 $stacks = switch ($Target) {
     "legacy" { @("legacy") }
     "web"    { @("web") }
-    "both"   { @("legacy", "web") }
 }
 
 foreach ($stack in $stacks) {

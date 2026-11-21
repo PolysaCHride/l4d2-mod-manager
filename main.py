@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
-"""L4D2 Mod Manager 入口。"""
+"""旧界面入口（PySide6）—— **ARCHIVED 2026-11-21：仅供查阅，不再维护、不再发版。**
+
+新界面入口是 `main_web.py`（pywebview + 系统 WebView2），这也是唯一发布路径。
+本文件原地保留，`build_release.ps1 -Target legacy` 仍能构建它（会先警告），
+取回完整可发版的旧界面：`git checkout archive/legacy-ui-2026-11-21`
+"""
 import os
 import sys
 
