@@ -9,7 +9,7 @@
 这里锁死三件事：
 1. `_to_mod` 的字段集合（加字段必须显式改这里）
 2. core 里被丢弃的字段必须列在 DROPPED 里（显式声明）
-3. 互斥类别在所有副本里必须一致
+3. 体积文本的格式（前端直接显示，两处实现必须同一份）
 
 运行：
     .venv/Scripts/python.exe -m unittest tests.test_webui_contract -v
@@ -234,6 +234,39 @@ class TestAutoCategoryRoundTrip(unittest.TestCase):
         from app.core.library import LibraryError
         with self.assertRaises(LibraryError):
             self.lib.restore_auto_category("x.vpk")
+
+
+class TestSizeFormat(unittest.TestCase):
+    """体积文本是用户直接看到的东西，锁死输出。
+
+    这条测试存在的意义不只是「测一个格式化函数」，而是钉住
+    `api.py` 与 `tasks.py` 共用同一份实现这件事：模组列表里的
+    "1.5 MB" 和下载进度里的 "1.5 MB" 必须由同一个函数产生。
+    """
+
+    def test_units(self):
+        from app.shell.fmt import fmt_size
+        self.assertEqual(fmt_size(0), "0 B")
+        self.assertEqual(fmt_size(512), "512 B")
+        self.assertEqual(fmt_size(1536), "1.5 KB")
+        self.assertEqual(fmt_size(1024 * 1024), "1.0 MB")
+        self.assertEqual(fmt_size(int(1.5 * 1024 ** 3)), "1.5 GB")
+
+    def test_bad_input_is_zero_not_question_mark(self):
+        """缺失/脏数据一律 0 B；不能用 "?" 冒充「加载失败」。"""
+        from app.shell.fmt import fmt_size
+        for bad in (None, "", "abc", -1, {}):
+            self.assertEqual(fmt_size(bad), "0 B", "输入 %r" % (bad,))
+
+    def test_both_modules_share_one_implementation(self):
+        """api 与 tasks 引用的必须是 fmt 里那一个，不能再各留一份拷贝。"""
+        from app.shell import api, fmt, tasks
+        self.assertIs(api.fmt_size, fmt.fmt_size)
+        self.assertIs(tasks.fmt_size, fmt.fmt_size)
+        self.assertFalse(hasattr(api, "_fmt_size"),
+                         "api 里不该再有私有的 _fmt_size 拷贝")
+        self.assertFalse(hasattr(tasks, "_fmt_size"),
+                         "tasks 里不该再有私有的 _fmt_size 拷贝")
 
 
 if __name__ == "__main__":

@@ -23,37 +23,10 @@
   }
 
   // ---------------------------------------------------------------- data
-  const DEMO_MODS = [
-    { id: 'm1', name: 'Koharu [Replace Ellis]', alias: '', cat: '角色', item: 'Ellis', size: 116.1, img: 'mod1.webp', enabled: false, added: 2, file: '3668116708.vpk', ws: '' },
-    { id: 'm2', name: 'VRC lime 甜点屋 打歌服', alias: '', cat: '角色', item: 'Ellis', size: 93.0, img: 'mod2.webp', enabled: false, added: 4, file: '3664792140.vpk', ws: '3664792140' },
-    { id: 'm3', name: 'VRC プラム Plum replace ellis', alias: '夏日甜点屋', cat: '角色', item: 'Ellis', size: 34.1, img: 'mod3.webp', enabled: true, added: 7, file: '3659210344.vpk', ws: '3659210344' },
-    { id: 'm4', name: '[Gakuen IDOLM@STER] Fujita', alias: '', cat: '角色', item: 'Ellis', size: 146.4, img: 'mod4.webp', enabled: false, added: 9, file: '3671024551.vpk', ws: '3671024551' },
-    { id: 'm5', name: '【原神】菲谢尔 极夜真梦', alias: '', cat: '角色', item: 'Ellis', size: 38.3, img: 'mod5.webp', enabled: false, added: 12, file: '3648830117.vpk', ws: '3648830117' },
-    { id: 'm6', name: '雨衣替换 Ellis', alias: '', cat: '角色', item: 'Ellis', size: 246.6, img: 'mod6.webp', enabled: false, added: 18, file: '3639905428.vpk', ws: '3639905428' },
-
-    { id: 'm7', name: 'Nick | 警长制服', alias: '', cat: '角色', item: 'Nick', size: 82.4, img: 'mod4.webp', enabled: true, added: 5, file: '3678823160.vpk', ws: '' },
-    { id: 'm8', name: 'Coach | 军装', alias: '', cat: '角色', item: 'Coach', size: 64.2, img: 'mod1.webp', enabled: false, added: 15, file: '3674102118.vpk', ws: '' },
-
-    { id: 'm9', name: 'Hunter | 血污皮肤', alias: '', cat: '特感', item: 'Hunter', size: 21.6, img: 'mod2.webp', enabled: true, added: 6, file: '3669120441.vpk', ws: '' },
-    { id: 'm10', name: 'Tank | 熔岩体表', alias: '', cat: '特感', item: 'Tank', size: 44.9, img: 'mod5.webp', enabled: false, added: 21, file: '3650123788.vpk', ws: '' },
-
-    { id: 'm11', name: 'AK-47 | 霓虹风暴', alias: '', cat: '枪械', item: 'AK-47', size: 56.8, img: 'mod2.webp', enabled: true, added: 1, file: '3680021947.vpk', ws: '' },
-    { id: 'm12', name: 'AK-47 | 废土涂装', alias: '', cat: '枪械', item: 'AK-47', size: 48.3, img: 'mod4.webp', enabled: false, added: 11, file: '3671200336.vpk', ws: '' },
-    { id: 'm13', name: 'M16A2 | 数码迷彩', alias: '', cat: '枪械', item: 'M16A2', size: 40.1, img: 'mod6.webp', enabled: true, added: 8, file: '3670120914.vpk', ws: '' },
-    { id: 'm14', name: '消防斧 | 生锈', alias: '', cat: '近战', item: '消防斧', size: 18.7, img: 'mod1.webp', enabled: false, added: 13, file: '3664007712.vpk', ws: '' },
-    { id: 'm15', name: '大剑 · 冷冽', alias: '', cat: '近战', item: '大剑', size: 27.4, img: 'mod3.webp', enabled: true, added: 16, file: '3658001120.vpk', ws: '' },
-    { id: 'm16', name: '急救包 | 医疗箱', alias: '', cat: '医疗品', item: '急救包', size: 9.2, img: 'mod5.webp', enabled: false, added: 22, file: '3650110088.vpk', ws: '' },
-    { id: 'm17', name: '燃烧瓶 | 荧光', alias: '', cat: '投掷', item: '燃烧瓶', size: 6.4, img: 'mod2.webp', enabled: true, added: 19, file: '3649002244.vpk', ws: '' },
-
-    { id: 'm18', name: '死亡中心 · 重制版', alias: '', cat: '地图', item: '死亡中心', size: 1228.8, img: 'mod6.webp', enabled: true, added: 3, file: '3674110256.vpk', ws: '3674110256', collection: 'c1' },
-    { id: 'm19', name: '寂静岭 · 雾中街区', alias: '', cat: '地图', item: '自定义', size: 3481.6, img: 'mod5.webp', enabled: false, added: 10, file: '3661004421.vpk', ws: '', collection: 'c2' },
-    { id: 'm20', name: '黑色狂欢节', alias: '', cat: '地图', item: '黑色狂欢节', size: 812.0, img: 'mod4.webp', enabled: false, added: 24, file: '3643004412.vpk', ws: '' },
-
-    { id: 'm21', name: 'HUD | 极简', alias: '', cat: 'UI', item: '', size: 12.1, img: 'mod1.webp', enabled: true, added: 14, file: '3662008811.vpk', ws: '' },
-    { id: 'm22', name: '武器音效重制', alias: '', cat: '音效音乐', item: '', size: 96.4, img: 'mod3.webp', enabled: false, added: 17, file: '3657001133.vpk', ws: '' },
-  ]
-
-  // 真实数据由 bootstrap 填充；DEMO_MODS 只在浏览器 mock 时兜底。
+  // 演示数据只在 app/webui/bridge.js 的 mock 里维护（MOCK_MODS），
+  // 这里不要再放一份：浏览器预览时 bridge.bootstrap() 一定会成功返回 mock，
+  // 于是本文件的兜底分支永远不会被执行 —— 以前那 29 行是纯死代码。
+  // 真实数据由 bootstrap 填充。
   let MODS = [];
 
   // FilterPanel 结构与拆解文档一致：分组 → 物品
@@ -845,7 +818,11 @@
     await window.bridge.whenReady();
     const res = await window.bridge.bootstrap();
     if (!res || !res.ok) {
-      if (window.bridge.isMock()) MODS = DEMO_MODS.slice();
+      // 浏览器 mock 模式下 bridge.bootstrap() 必定成功（bridge.mockBootstrap），
+      // 所以走到这里只可能是真后端出错。**不要用假数据填上**——否则用户
+      // 会看到一屏不存在的模组，还会以为「只是预览图丢了」。
+      // 留空，让空状态提示和 toast 去说明真实原因。
+      console.error('[app] bootstrap 失败', res && res.error);
       return false;
     }
     MODS = (res.mods || []).map(adapt);

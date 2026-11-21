@@ -8,20 +8,7 @@
 import os
 
 from app.core import downloader, importer, steam_api
-
-
-def _fmt_size(n):
-    try:
-        n = float(n or 0)
-    except (TypeError, ValueError):
-        n = 0.0
-    if n <= 0:
-        return "0 B"
-    for unit in ("B", "KB", "MB", "GB"):
-        if n < 1024 or unit == "GB":
-            return ("%d %s" % (int(n), unit)) if unit == "B" else ("%.1f %s" % (n, unit))
-        n /= 1024.0
-    return "%.1f GB" % n
+from app.shell.fmt import fmt_size
 
 
 def scan(job, library):
@@ -327,7 +314,7 @@ def fetch_details(ids, library, max_items=300):
             "category": "",
             "item": "",
             "size": size,
-            "sizeText": _fmt_size(size),
+            "sizeText": fmt_size(size),
             "thumb": "",
             "existing": bool(existing),
             "appId": detail.get("consumer_app_id"),

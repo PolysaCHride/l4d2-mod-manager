@@ -46,25 +46,17 @@ a = Analysis(
     binaries=[],
     datas=datas,
     hiddenimports=[
+        # 只有这 3 项是「运行时动态加载」，静态分析看不到，必须写进来。
+        # webview/platforms/__init__.py 按平台字符串 importlib 对应模块，
+        # edgechromium 再 import pythonnet 的 clr。
+        #
+        # 其余 app.* 一律**不要**在这里重复列：
+        # main_web.py → app.shell.api → app.core.* 全是静态 import，
+        # PyInstaller 自己会跟进去；手写一遍只会让两处清单漂移
+        # （以前列了 18 项，其中 15 项是多余的，加新模块时又常忘同步）。
         "webview.platforms.winforms",
         "webview.platforms.edgechromium",
         "clr",
-        "app.shell",
-        "app.shell.api",
-        "app.shell.tasks",
-        "app.shell.jobs",
-        "app.core.library",
-        "app.core.store",
-        "app.core.paths",
-        "app.core.app_paths",
-        "app.core.importer",
-        "app.core.downloader",
-        "app.core.steam_api",
-        "app.core.classify",
-        "app.core.vpk",
-        "app.core.game",
-        "app.core.archiver",
-        "app.core.addonlist",
     ],
     hookspath=[],
     hooksconfig={},

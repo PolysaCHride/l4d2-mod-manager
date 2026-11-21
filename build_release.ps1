@@ -1,10 +1,13 @@
-param(
+﻿param(
     [string]$Version = "",
     # legacy = PySide6 旧栈；web = pywebview + WebView2 新栈（主线）
     [ValidateSet("legacy", "web", "both")]
     [string]$Target = "web",
     # 跳过打包，只校验现有产物（用于 CI 的 verify 阶段）
-    [switch]$VerifyOnly
+    [switch]$VerifyOnly,
+    # 打包后真的把 exe 启动一次做冒烟（只有 web 栈支持）。
+    # 会短暂弹出窗口，所以默认不开；改 spec / hiddenimports 之后必须开一次。
+    [switch]$Smoke
 )
 
 $ErrorActionPreference = "Stop"
@@ -38,6 +41,71 @@ function Assert-InRelease([string]$Path) {
     if (-not $Path.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
         throw "拒绝操作 release 目录之外的路径: $Path"
     }
+}
+
+# 冒烟：真的把打包好的 exe 启动一次。
+# 为什么值得做：spec / hiddenimports 少带了一个模块时，构建成功、包也完整，
+# 只有**双击运行**才会崩 —— 静态检查抓不到这类问题。
+# 依赖 main_web.py 的 L4D2_SHOT 钩子：等界面稳定、截图、然后由我们负责收掉进程。
+function Invoke-SmokeTest([string]$Dir, [string]$Label) {
+    $exe = @(Get-ChildItem -LiteralPath $Dir -Filter *.exe -File)
+    if ($exe.Count -ne 1) {
+        throw "[$Label] 冒烟测试：包顶层应恰好有 1 个 exe，实际 $($exe.Count) 个"
+    }
+
+    $shot = Join-Path $env:TEMP ("l4d2-smoke-" + [guid]::NewGuid().ToString("N") + ".bmp")
+    $log = "$shot.out.log"
+    $errLog = "$shot.err.log"
+    $proc = $null
+    $prevShot = $env:L4D2_SHOT
+    try {
+        $env:L4D2_SHOT = $shot
+        $proc = Start-Process -FilePath $exe[0].FullName -PassThru `
+            -RedirectStandardOutput $log -RedirectStandardError $errLog
+
+        $deadline = (Get-Date).AddSeconds(90)
+        while ((Get-Date) -lt $deadline) {
+            Start-Sleep -Milliseconds 500
+            if ((Test-Path -LiteralPath $shot) -and
+                (Get-Item -LiteralPath $shot).Length -gt 100KB) { break }
+            if ($proc.HasExited) { break }
+        }
+        # 截图只是钩子，进程不会自己退出，必须收掉
+        if (-not $proc.HasExited) {
+            $proc.Kill()
+            $proc.WaitForExit(5000) | Out-Null
+        }
+
+        $text = ""
+        if (Test-Path -LiteralPath $log) { $text = Get-Content -LiteralPath $log -Raw }
+        $errText = ""
+        if (Test-Path -LiteralPath $errLog) { $errText = Get-Content -LiteralPath $errLog -Raw }
+
+        if (-not (Test-Path -LiteralPath $shot)) {
+            throw "[$Label] 冒烟测试：exe 退出了但没截到图。日志：`n$text`n$errText"
+        }
+        # 关键断言：桥接层真的起来了。只有窗口不算 —— 空壳窗口也能截图。
+        if ($text -notmatch "boot .*ok=true") {
+            throw "[$Label] 冒烟测试：前端 boot 未成功（桥接层没起来）。日志：`n$text`n$errText"
+        }
+    }
+    finally {
+        if ($proc -and -not $proc.HasExited) { $proc.Kill() }
+        if ($null -eq $prevShot) { Remove-Item Env:L4D2_SHOT -ErrorAction SilentlyContinue }
+        else { $env:L4D2_SHOT = $prevShot }
+        foreach ($f in @($shot, $log, $errLog)) {
+            if (Test-Path -LiteralPath $f) {
+                Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue
+            }
+        }
+        # 跑一次就会在包内留下 data/（里面有本地游戏路径），不清掉会被打进 zip
+        $runtimeData = Join-Path $Dir "data"
+        if (Test-Path -LiteralPath $runtimeData) {
+            Assert-InRelease $runtimeData
+            Remove-Item -LiteralPath $runtimeData -Recurse -Force
+        }
+    }
+    Write-Host "  冒烟通过：exe 能启动，桥接 ok=true" -ForegroundColor Green
 }
 
 # 从 version_info.txt 读主版本号，避免版本号在三个地方各写一遍。
@@ -149,6 +217,17 @@ function New-Release([string]$Stack, [string]$Ver) {
     }
 
     Test-Package $packageDir $Stack
+
+    if ($Smoke) {
+        if ($cfg.Entry -eq "main_web.py") {
+            Invoke-SmokeTest $packageDir $Stack
+            # 冒烟会在包里创建 data/，再查一遍，别把运行时数据打进 zip
+            Test-Package $packageDir $Stack
+        }
+        else {
+            Write-Host "  跳过冒烟：$Stack 栈没有 L4D2_SHOT 钩子" -ForegroundColor DarkYellow
+        }
+    }
 
     if ($VerifyOnly) {
         Write-Host "  校验通过（未重新打包）: $packageDir" -ForegroundColor Green

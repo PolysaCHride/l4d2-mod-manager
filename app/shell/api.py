@@ -24,6 +24,7 @@ from app.core import app_paths, paths as paths_core  # noqa: E402
 from app.core.library import Library  # noqa: E402
 from app.core.store import Store  # noqa: E402
 from app.shell import tasks  # noqa: E402
+from app.shell.fmt import fmt_size  # noqa: E402
 from app.shell.jobs import JobRunner  # noqa: E402
 
 APP_VERSION = "1.2.1"
@@ -69,13 +70,16 @@ def _thumb_url(preview_path, max_bytes=400 * 1024):
             try:
                 from PIL import Image
                 import io
-                img = Image.open(p)
-                img.thumbnail((320, 180))
-                buf = io.BytesIO()
-                if img.mode not in ("RGB", "L"):
-                    img = img.convert("RGB")
-                img.save(buf, format="JPEG", quality=78)
-                data = buf.getvalue()
+                # 必须用 with：这个函数在 bootstrap 里会对**每一条**超过
+                # 阈值的记录跑一遍（真实库 200 条），不关闭句柄就会攒下
+                # 200 个未释放的文件描述符，Windows 上还会锁住预览图。
+                with Image.open(p) as im:
+                    im.thumbnail((320, 180))
+                    if im.mode not in ("RGB", "L"):
+                        im = im.convert("RGB")
+                    buf = io.BytesIO()
+                    im.save(buf, format="JPEG", quality=78)
+                    data = buf.getvalue()
                 uri = "data:image/jpeg;base64," + __import__("base64").b64encode(data).decode("ascii")
                 _THUMB_CACHE[key] = uri
                 return uri
@@ -151,23 +155,6 @@ def _wiki_thumb(item, category):
         return uri
     except Exception:
         return ""
-
-
-def _fmt_size(n):
-    """字节 → 人类可读。与 app/ui/util.fmt_size 输出保持一致。"""
-    try:
-        n = float(n or 0)
-    except (TypeError, ValueError):
-        n = 0.0
-    if n <= 0:
-        return "0 B"
-    for unit in ("B", "KB", "MB", "GB"):
-        if n < 1024 or unit == "GB":
-            if unit == "B":
-                return "%d %s" % (int(n), unit)
-            return "%.1f %s" % (n, unit)
-        n /= 1024.0
-    return "%.1f GB" % n
 
 
 def _fmt_ago(ts):
@@ -277,7 +264,7 @@ class Api(object):
             "category": category,
             "item": item,
             "size": int(rec.get("size") or 0),
-            "sizeText": _fmt_size(rec.get("size")),
+            "sizeText": fmt_size(rec.get("size")),
             "enabled": bool(rec.get("enabled")),
             "workshop_id": str(rec.get("workshop_id") or ""),
             "thumb": thumb,
@@ -571,7 +558,7 @@ class Api(object):
                         "category": c.get("category", ""),
                         "item": c.get("item", ""),
                         "size": int(c.get("size") or 0),
-                        "sizeText": _fmt_size(c.get("size")),
+                        "sizeText": fmt_size(c.get("size")),
                         "thumb": _thumb_url(c.get("preview")),
                         "selected": bool(c.get("selected")),
                         "duplicate": bool(c.get("duplicate_reason")),

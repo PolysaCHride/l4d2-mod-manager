@@ -3,6 +3,8 @@
 > 写于 2026-11-20，前端重构第一期落地之后。
 > **2026-11-20 第二轮更新**：补写发布流程、Node 侧契约测试、数据 format 文档，
 > 并修掉 5 处新发现的假动作。改动集中在 §3.3 / §3.5 / §6.10-6.12 / §8 / §11。
+> **2026-11-21 第五、六轮更新**：互斥机制整体拆除（§6.5 重写、§8.6）；
+> 打包加冒烟测试、`.ps1` 补 BOM（§3.5）；P2 整洁 + B-3 实测结论（§8.3 / §8.7）。
 > 面向：接管这个项目、但完全没有上下文的工程师团队。
 >
 > 本文档的目标不是「介绍项目」，而是**让你在最短时间内知道：什么东西能碰、什么东西碰了会炸、以及为什么当初这么做**。
@@ -28,7 +30,9 @@
 
 **核心机制**：L4D2 通过 `left4dead2/addonlist.txt` 控制哪些 `.vpk` 启用。工具负责扫描 `addons/`、解析 VPK 元数据、分类、启停、导入压缩包、从创意工坊下载。
 
-**一个特殊约束**：外观类模组（角色/特感/枪械/近战/医疗品/投掷）**同组互斥** —— 同一个 `(分类, 物品)` 只能启用一个。这是游戏机制决定的，不是产品设计选择。
+**一个曾经的设计约束（2026-11-21 已拆除）**：原来外观类模组（角色/特感/枪械/近战/医疗品/投掷）按 `(分类, 物品)` 做「同组互斥」—— 同组只允许启用一个，理由是「游戏机制决定」。
+
+这个理由站不住：游戏本身允许同槽位的多个 VPK 同时启用（实际生效的是加载顺序靠后的那个），管理器再拦一层，用户想「两个皮肤都留着、需要时临时切」反而做不到。现在**由用户自行管理冲突**，管理器不再阻止任何组合。详见 §6.5。
 
 ---
 
@@ -114,10 +118,10 @@ python -m venv .venv
 ### 3.3 验证
 
 ```powershell
-# 业务逻辑单测 + 前后端契约测试（36 个，用隔离临时目录，不碰真实游戏目录）
+# 业务逻辑单测 + 前后端契约测试（67 个，用隔离临时目录，不碰真实游戏目录）
 .\.venv\Scripts\python -X utf8 -m unittest discover -s tests -v
 
-# 前端契约测试单独跑（23 项，Node 直跑，不需要 Python）
+# 前端契约测试单独跑（21 项，Node 直跑，不需要 Python）
 node tests\adapt_contract.js
 
 # 桥接层自测（不需要窗口，用假 window 验证事件推送）
@@ -160,6 +164,12 @@ node --check app/webui/bridge.js
 
 # 两套一起
 .\build_release.ps1 -Target both
+
+# 改过 spec / hiddenimports 之后必须跑一次：打包完真的把 exe 启起来冒烟
+.\build_release.ps1 -Target web -Smoke
+
+# 不重新打包，只校验现有产物（CI 的 verify 阶段）
+.\build_release.ps1 -Target web -VerifyOnly
 ```
 
 产出：
@@ -199,13 +209,50 @@ release/L4D2 Mod Manager-v<版本>-win64/           旧栈（无 -web 后缀）
 > ```
 > 但**先自己确保** `third_party/7zip/` 有货，否则直接中止。
 
+#### 冒烟测试（`-Smoke`，2026-11-21 新增）
+
+为什么需要：spec / `hiddenimports` 少带一个模块时，**构建成功、包完整、所有静态检查全绿**，
+只有双击运行那一刻才崩。这类问题没法靠读代码发现，只能真的启一次。
+
+`-Smoke` 只对 web 栈生效，做四件事：
+
+1. 先跑一遍 `Test-Package`（7-Zip 齐全、拒绝 `data/` 与文档文件）
+2. 用 `main_web.py` 的 `L4D2_SHOT` 钩子启动包里的 exe，最多等 90s 截图落地
+3. 断言 stdout 里有 `boot ... ok=true` —— **只看截图不算数**，空壳窗口也能截出 4.9MB 的图
+4. 收掉进程、删掉冒烟产生的 `data/`（里面有本地游戏路径）、再跑一遍 `Test-Package`
+
+会短暂弹窗，所以默认不开。**改过 spec / `hiddenimports` / 入口文件之后必须开一次。**
+
+#### ⚠️ `.ps1` 必须是 UTF-8 **with BOM**
+
+`build_release.ps1` 和 `packaging/fetch_7zip.ps1` 里都有中文。Windows PowerShell 5.1
+（系统默认那个）**不带 BOM 就按 GBK 解码**，中文注释会把字符串截断，整个脚本解析失败：
+
+```
+Missing expression after ','.
+The string is missing the terminator: '.
+```
+
+这两个文件在此前一直是「无 BOM」状态，只是从没人用 5.1 跑过（`pwsh` 7.x 默认按 UTF-8
+读，能跑通，所以文档里的 `.\build_release.ps1` 对 5.1 用户其实是坏的）。
+2026-11-21 已补 BOM + CRLF，5.1 与 7.x 都能过。
+
+**改这两个文件时别把 BOM 丢掉**（编辑器另存为「UTF-8 with BOM」，或 python 显式
+`encoding="utf-8-sig"`）。验证：
+
+```powershell
+powershell -NoProfile -Command "`$e=`$null; [void][System.Management.Automation.Language.Parser]::ParseFile('D:\项目\L4D2 Mod Manager\build_release.ps1',[ref]`$null,[ref]`$e); `$e.Count"
+```
+
+返回 `0` 才算好。
+
 ---
 
 ## 4. 代码地图
 
 ```
 app/core/          4234 行  ★ 业务逻辑，冻结，与 UI 无关
-├── library.py             模组库：扫描、启停、互斥、别名、分类、删除
+├── library.py             模组库：扫描、启停、别名、分类、删除
 ├── store.py               JSON 持久化（library.json / settings.json）
 ├── importer.py            压缩包解析与写入
 ├── downloader.py          工坊下载
@@ -585,11 +632,51 @@ def progress(text, done=0, current=""):
 
 | # | 事项 | 状态 |
 |---|---|---|
-| 14 | `_fmt_size` 有三份实现（api.py / tasks.py / ui/util.py） | ⬜ 未动（core 冻结，只能收中间层两份） |
-| 15 | `spec` 的 `hiddenimports` 18 项里 15 项多余 | ⬜ 未动 |
-| 16 | `app/webui/assets/mods/*.webp` 6 张图只用于 mock | ⬜ 未动 |
-| 17 | `app.js` 里的 `DEMO_MODS`（29 行演示数据）与 mock 重复 | ⬜ 未动，可随 P2 一起清 |
+| 14 | ~~`_fmt_size` 有三份实现~~ | ✅ **第六轮收中间层两份**：抽到 `app/shell/fmt.py`，`app/ui/util.py` 那份随旧界面冻结不动（行为差异见 §8.7） |
+| 15 | ~~`spec` 的 `hiddenimports` 18 项里 15 项多余~~ | ✅ **第六轮删到 3 项**，并用 `-Smoke` 实测打包能跑 |
+| 16 | `app/webui/assets/mods/*.webp` 6 张图只用于 mock | ✅ **裁定保留**：`bridge.js` 的浏览器 mock 在用，删了预览就成空白块 |
+| 17 | ~~`app.js` 里的 `DEMO_MODS`（29 行演示数据）~~ | ✅ **第六轮删除**（是死代码，`bridge.bootstrap()` 在 mock 下必定成功） |
 | 18 | `chapters` 是无人读写的遗留字段（197/200 条带它） | ⬜ 已记录进 `DATA_SCHEMA.md` §2.3 |
+| 19 | `api.py` 的 `Image.open` 不关闭句柄（bootstrap 里每条记录跑一遍） | ✅ **第六轮修复**：改 `with` 语句，Windows 上不再锁预览图 |
+
+### 8.7 第六轮（2026-11-21）：P2 整洁 + 打包冒烟
+
+| 项 | 结果 |
+|---|---|
+| 体积格式化 | 三份 → 两份：`app/shell/fmt.py:fmt_size`，`api`/`tasks` 都引用它（`assertIs` 锁死） |
+| `hiddenimports` | 18 → 3（只留 `webview.platforms.winforms` / `edgechromium` / `clr` 这 3 项真的是运行期动态加载的） |
+| `DEMO_MODS` | 删 29 行死代码 + 删掉「bootstrap 失败就用假数据」的兜底（会拿假模组盖住真错误） |
+| `Image.open` | 改 `with`，`bootstrap` 不再漏 200 个文件句柄 |
+| `build_release.ps1` | 新增 `-Smoke`；`.ps1` 补 UTF-8 BOM + CRLF，PS 5.1 也能跑（见 §3.5） |
+| 测试 | 64 → **67**（新增 `TestSizeFormat` 3 条），Node 契约 21 项不变 |
+| 打包实测 | 5.1 下 `-Target web` → 46.4 MB / zip 22 MB，`-Smoke` 断言 `boot ok=true` 通过 |
+
+#### 体积格式化的两份为什么不能合成一份
+
+`app/ui/util.fmt_size`（旧界面，冻结）和 `app/shell/fmt.fmt_size`（新界面）**行为不同**：
+
+| 输入 | 旧界面 | 新界面 |
+|---|---|---|
+| `1536` | `1 KB`（`%.0f`） | `1.5 KB`（`%.1f`） |
+| `"abc"` / `None` | `?` | `0 B` |
+
+旧那份要跟着 `app/ui/` 一起冻结（HANDOFF 铁律 8），所以**保留两套输出、只收掉中间层重复的那一份**。
+`app/shell/fmt.py` 的 docstring 里写明了这个差异是有意的，别再拿「统一格式」当理由去改冻结代码。
+
+#### B-3（预览图真下载）的实测结论：不值得做
+
+用真实库量了一遍预览图来源（200 条）：
+
+| 来源 | 条数 |
+|---|---|
+| 模组自带 / 工坊订阅时落在 addons 旁的 `.jpg` | **194** |
+| `assets/wiki` 占位图兜底 | 5 |
+| 完全没图 | 0 |
+
+只有 **6 条**（5 条有工坊 ID、1 条手装地图）拿不到真图，其余 194 条本来就有。
+`PreviewWorker` 是旧界面里**从未被实例化**的代码，移植它最多补 6 张图 ——
+性价比不成立，**建议关闭该项**，除非以后出现「新增模组普遍缺图」的情况再回头看。
+
 
 ### 8.6 第五轮（2026-11-21）：拆除互斥机制 + 标题回归修复
 
@@ -657,7 +744,7 @@ def progress(text, done=0, current=""):
 | 框架/前置包误分类 | ✅ 新增 `_looks_like_framework`：`xdReanimsBase`、`KSEP Platform` 从「特感/角色」改为「杂项/前置框架」 |
 | 地图多部件被打散 | ✅ 新增「addoninfo 明示 Campaign/Map → 归地图」前置规则：4 个部件修回地图，4 个地图家族恢复完整 |
 | `CLF_VERSION` | ✅ 14 → **15**，真实库 200/200 已重扫到 15 |
-| 组级互斥开关 | ✅ 详情页「同组」面板新增拨动开关，按 `(分类, 物品)` 关闭互斥；状态存 `settings.json` 的 `mutex_off_groups` |
+| 组级互斥开关 | ✅ 详情页「同组」面板新增拨动开关，按 `(分类, 物品)` 关闭互斥；状态存 `settings.json` 的 `mutex_off_groups`（**第五轮已整体拆除**） |
 
 **已知边界（无法自动修）**：`The Parish Halloween` 的 2 个 models/materials 部件
 既无 addoninfo、也无 mission、也无 bsp，单看内容无法判断属于哪张地图，
@@ -708,14 +795,15 @@ def progress(text, done=0, current=""):
 
 - [ ] 读本文档第 0、5、6 节
 - [ ] `pip install -r requirements.txt`，跑起 `main_web.py`
-- [ ] 跑 `python -m unittest discover -s tests -v`，确认 **36 个全绿**
-- [ ] 跑 `node tests/adapt_contract.js`，确认 23 项全过
+- [ ] 跑 `python -m unittest discover -s tests -v`，确认 **67 个全绿**
+- [ ] 跑 `node tests/adapt_contract.js`，确认 **21 项**全过
 - [ ] 跑 `python -X utf8 docs/redesign/proto/e2e_check.py`，确认 `mode: live`
 - [ ] 打开一次 DevTools（`L4D2_DEBUG=1`），看有没有 console 错误
 - [ ] 双击一个模组，**去 `addonlist.txt` 确认真的写了 `0`/`1`**
 - [ ] 点顶栏的「启动」，确认真的拉起了 Steam（这是本轮修好的 5 处之一）
 - [ ] 跑一次 `.\build_release.ps1 -Target web`，确认
       `release/L4D2 Mod Manager-v*-win64-web/_internal/7zip/7z.exe` 存在
+- [ ] 跑一次 `.\build_release.ps1 -Target web -Smoke`，确认 exe 真的能启动（冒烟会弹一次窗）
 - [ ] 把 `third_party/7zip` 临时移走再构建，确认**构建失败**而不是产出残缺包
 - [ ] 读 `docs/DATA_SCHEMA.md`（改分类规则前必读 `clfv` 那节）
 - [ ] 读 `docs/redesign/proto/RESULTS.md`（为什么选 pywebview）
