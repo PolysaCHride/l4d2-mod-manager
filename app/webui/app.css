@@ -702,6 +702,23 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 }
 .dlg-input::placeholder { color: #4e564f; }
 .dlg-input:focus { outline: none; border-color: var(--accent); }
+/* 子分类选择器：输入框在上（新建），下面是可滚动的现有子分类 */
+.sub-list {
+  margin-top: 8px; max-height: 220px; overflow-y: auto;
+  border: 1px solid #232a24; border-radius: 4px;
+  background: #0c0f0c; padding: 4px;
+}
+.sub-item {
+  display: block; width: 100%; padding: 5px 8px; border-radius: 3px;
+  color: #a9b3a4; font-family: inherit; font-size: 10px; text-align: left;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  cursor: pointer;
+}
+.sub-item:hover { background: #171c17; color: #e4ebdf; }
+.sub-item.active { background: #1c2317; color: var(--accent); }
+.sub-empty { margin: 6px 8px; color: #5b655c; font-size: 9px; }
+.sub-list::-webkit-scrollbar { width: 8px; }
+.sub-list::-webkit-scrollbar-thumb { background: #2b332c; border-radius: 4px; }
 /* 单选列表（分类选择等）：滚动区 + 与 dlg-row 一致的视觉节奏 */
 .dlg-choices {
   margin-top: 10px; max-height: 300px; overflow-y: auto;

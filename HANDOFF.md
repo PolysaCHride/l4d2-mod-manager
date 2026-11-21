@@ -129,7 +129,7 @@ python -m venv .venv
 # 业务逻辑单测 + 前后端契约测试（79 个，用隔离临时目录，不碰真实游戏目录）
 .\.venv\Scripts\python -X utf8 -m unittest discover -s tests -v
 
-# 前端契约测试单独跑（39 项，Node 直跑，不需要 Python）
+# 前端契约测试单独跑（45 项，Node 直跑，不需要 Python）
 node tests\adapt_contract.js
 
 # 桥接层自测（不需要窗口，用假 window 验证事件推送）
@@ -798,6 +798,21 @@ def progress(text, done=0, current=""):
 
 详见 `docs/DATA_SCHEMA.md` §7.4。
 
+### 8.10 第九轮（2026-11-21）：子分类排序 + 选择器 + 隐形预留入口
+
+| 项 | 结果 |
+|---|---|
+| 子分类按名称排序 | ✅ 一级分类下的子分类一律 `localeCompare(zh)` 排序；不再按数量降序（数量天天变，位置跟着跳） |
+| 子分类单一来源 | ✅ 新增 `subItemsOf(cat, mods, colls)`：树、单层列表、分组列表、选择器全走它（顺带去掉两处重复的收集逻辑） |
+| 子分类选择器 | ✅ 改分类第二步从「纯输入框」升级为「第一栏输入（新建）+ 可滚动现有列表」；点一项即填入输入框并高亮；当前值自动滚到可见处 |
+| 用户新建的子分类自动清除 | ✅ 子分类**不落库**（从 `item` / 合集名现算），最后一个模组被移走时自然消失；管理器自带的不会被谁清掉（没人改别的模组的 item） |
+| 「⋯ 更多操作」隐藏 | ✅ 带 `hidden` + `data-reserved-entry`，DOM/事件保留，见 §9.7 |
+| 测试 | ✅ Node 39 → **45**（subItemsOf 排序/去重/分类过滤/合集回落/自动消失）；coll_check 增加 6 条实机断言（选择器可滚动、已排序、点选填充、树排序、新建项自动消失、自带项保留、⋯ 不可见） |
+
+**为什么子分类不落库**：一旦存进 settings/library，就要自己维护
+「空了的要不要删、自带的要不要留」，而且会和 `item` 形成两个真相来源。
+现在它纯粹是 `mods` 的投影 —— 这也正好满足「移走所有模组后自动清除」。
+
 ### 8.5 第四轮（分类器修复 + 组级互斥开关）
 
 | 项 | 结果 |
@@ -894,6 +909,18 @@ def progress(text, done=0, current=""):
 
 契约测试 `test_item_is_never_filled_from_collection` 就是防这一手。
 
+### 9.7 详情栏的「⋯ 更多操作」是**故意隐藏**的
+
+`renderInspector()` 里的 `.more-wrap` 现在带 `hidden` 和
+`data-reserved-entry="insMore"`。里面只剩一项「修改分类」，而它的入口已经
+移到「更多 → 子分类 → 修改」，所以这个三点按钮没有独占功能了。
+
+**别删它**：DOM、`#insMore` 的事件绑定、`.more-menu` 的收起逻辑都完整保留着，
+将来往详情栏加新操作时，把 `hidden` 去掉、往菜单里加 `<button data-more="...">`
+即可。顺手重写一套只会重复那段「点外部收起 / Esc 收起 / 滚动收起」的绑定。
+
+验证：`docs/redesign/proto/coll_check.py` 里有一条断言它确实不可见。
+
 ## 10. 交接检查清单
 
 接手第一周建议按这个顺序做：
@@ -901,7 +928,7 @@ def progress(text, done=0, current=""):
 - [ ] 读本文档第 0、5、6 节
 - [ ] `pip install -r requirements.txt`，跑起 `main_web.py`
 - [ ] 跑 `python -m unittest discover -s tests -v`，确认 **79 个全绿**
-- [ ] 跑 `node tests/adapt_contract.js`，确认 **39 项**全过
+- [ ] 跑 `node tests/adapt_contract.js`，确认 **45 项**全过
 - [ ] 跑 `python -X utf8 docs/redesign/proto/e2e_check.py`，确认 `mode: live`
 - [ ] 打开一次 DevTools（`L4D2_DEBUG=1`），看有没有 console 错误
 - [ ] 双击一个模组，**去 `addonlist.txt` 确认真的写了 `0`/`1`**
@@ -954,7 +981,7 @@ def progress(text, done=0, current=""):
 | 项 | 结果 |
 |---|---|
 | **发布流程** | 只有新界面一条路；7-Zip 三重校验；缺组件**直接失败**；冒烟默认开启（`-NoSmoke` 关） |
-| **契约保护** | Python 79 项 + Node 39 项，字段契约、标题兜底、合集/子分类三层都有断言 |
+| **契约保护** | Python 79 项 + Node 45 项，字段契约、标题兜底、合集/子分类三层都有断言 |
 | **实机可验** | `e2e_check.py` / `coll_check.py` / `toggle_check.py` 都跑真实库，不需要人眼看 |
 | **界面收口** | 卡片 `合集名 (x/5)`、详情「更多」常驻、标题三层兜底、自定义标题入口可见 |
 | **数据卫生** | `clean_cache` 清理 previews 孤儿（实测 31.3MB），重启不自动扫 |

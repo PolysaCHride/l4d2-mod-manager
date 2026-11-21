@@ -59,13 +59,8 @@
 
   /** 取某个二级分类下的物品名（按数量降序，带「全部X」置顶）。 */
   function itemsOfCategory(catName, pool) {
-    const names = [];
-    pool.forEach((m) => {
-      if (m.cat !== catName) return;
-      const item = displayItem(m, state.collections);
-      if (item && names.indexOf(item) < 0) names.push(item);
-    });
-    return ['全部' + catName].concat(names);
+    return ['全部' + catName].concat(
+      subItemsOf(catName, pool, state.collections));
   }
 
 
@@ -88,6 +83,7 @@
       adapt,
       displayTitle,
       displayItem,
+      subItemsOf,
       collectionTag,
       CATEGORY_OPTIONS,
       RAIL_DEFS,
@@ -320,6 +316,70 @@
     });
   }
 
+  /** 子分类选择器：**第一栏是输入框（= 新建）**，下面是可滚动的现有子分类。
+
+      为什么不是纯输入框：地图有 70+ 个子分类，靠回忆手打几乎不可能；
+      但用户又必须能新建 —— 所以「输入框 + 可滚动列表」合在一个对话框里。
+      返回最终值（已 trim，空串 = 不细分）；取消返回 null。
+  */
+  function subItemDialog({ title, text = '', value = '', options = [],
+                           placeholder = '新建子分类…', confirm = '保存分类' }) {
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (v) => {
+        if (settled) return;
+        settled = true;
+        resolve(v);
+      };
+      const rows = options.map((o) => `
+        <button class="sub-item${o === value ? ' active' : ''}" type="button"
+                data-sub="${esc(o)}" title="${esc(o)}">${esc(o)}</button>`).join('');
+      const html = `<div class="dlg info" style="max-width:480px">
+        <div class="dlg-head"><span class="dot"></span><h4>${esc(title)}</h4>
+          <button class="dlg-close" type="button" data-btn="close" aria-label="关闭">${icon('x')}</button></div>
+        <div class="dlg-body">${text ? `<p class="dlg-text">${esc(text)}</p>` : ''}
+          <input class="dlg-input" id="dlgInput" type="text" value="${esc(value)}"
+                 placeholder="${esc(placeholder)}" autocomplete="off" spellcheck="false">
+          <div class="sub-list" id="subList" role="listbox" aria-label="现有子分类">
+            ${rows || '<p class="sub-empty">还没有子分类，直接在上面输入即新建。</p>'}
+          </div>
+        </div>
+        <div class="dlg-foot">
+          <button class="btn ghost" type="button" data-btn="0">取消</button>
+          <button class="btn primary" type="button" data-btn="1">${esc(confirm)}</button>
+        </div></div>`;
+      // 遮罩 / ESC 关闭 → 解析为取消
+      openModal(html, { onClose: () => finish(null) });
+
+      const input = $('#dlgInput');
+      const active = $('#subList .sub-item.active');
+      if (active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest' });
+      if (input) {
+        input.focus();
+        input.select();
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            finish(input.value.trim());
+            closeModal(false);
+          }
+        });
+      }
+      $$('#subList .sub-item').forEach((b) => b.addEventListener('click', () => {
+        if (input) input.value = b.dataset.sub;
+        $$('#subList .sub-item').forEach((x) => {
+          x.classList.toggle('active', x === b);
+        });
+        if (input) input.focus();
+      }));
+      $$('#modal-host [data-btn]').forEach((b) => b.addEventListener('click', () => {
+        const el = $('#dlgInput');
+        finish(b.dataset.btn === '1' ? (el ? el.value.trim() : '') : null);
+        closeModal(false);
+      }));
+    });
+  }
+
   $('#modal-root').addEventListener('click', (e) => {
     // 点遮罩或弹窗外的留白都关闭
     const t = e.target;
@@ -418,11 +478,8 @@
       });
     } else {
       // 角色 / 特感 / 地图：单层列表，物品直接摊平
-      const items = ['全部' + def.title];
-      all.forEach((m) => {
-        const it = displayItem(m, state.collections);
-        if (it && items.indexOf(it) < 0) items.push(it);
-      });
+      const items = ['全部' + def.title].concat(
+        subItemsOf(null, all, state.collections));
       const unspecified = all.filter((m) => !displayItem(m, state.collections));
       if (unspecified.length) items.push('未指定物品');
       groups = [{ key: def.title, items, flat: true }];
@@ -482,14 +539,12 @@
       if (name.startsWith('未指定') || name === '未分类') return 1;
       return 2;
     };
+    // 「全部X」永远第一、「未指定物品/未分类」紧随其后，其余**一律按名称排**。
+    // 以前是按数量降序 —— 用户找一个具体的地图/角色时，数量天天变，
+    // 位置也跟着跳，反而难找。
     return items.slice().sort((a, b) => {
       const ra = rank(a), rb = rank(b);
       if (ra !== rb) return ra - rb;
-      if (ra === 2) {
-        const ca = pool.filter((m) => m.item === a).length;
-        const cb = pool.filter((m) => m.item === b).length;
-        if (ca !== cb) return cb - ca;
-      }
       return a.localeCompare(b, 'zh');
     });
   }
@@ -646,24 +701,21 @@
     });
     if (picked === null) return;
 
-    // 该分类下已有的子分类 —— 当成「可以填什么」的提示，不做下拉
-    const existing = [];
-    MODS.forEach((x) => {
-      if (x.cat !== picked) return;
-      const it = displayItem(x, state.collections);
-      if (it && existing.indexOf(it) < 0) existing.push(it);
-    });
+    // 该分类下已有的子分类（按名称排序）—— 选择器里可滚动挑选
+    const existing = subItemsOf(picked, MODS, state.collections);
 
-    const item = await textDialog({
+    const item = await subItemDialog({
       title: '子分类',
       text: `《${shown}》的一级分类是「${picked}」。\n\n`
-          + '子分类用来再分一层（地图 → 某张图 / 角色 → Ellis）。留空 = 不细分。'
+          + '第一栏可以直接输入新子分类；下面列出该分类下已有的子分类，'
+          + '点一个就选它。留空 = 不细分。'
           + (existing.length
-              ? `\n\n「${picked}」下已有：${existing.slice(0, 8).join(' / ')}`
+              ? `\n\n「${picked}」下共有 ${existing.length} 个子分类。`
               : ''),
       // 换了分类就不要再沿用旧的子分类（旧值多半属于别的分类）
       value: picked === oldCat ? oldSub : '',
-      placeholder: existing[0] || '留空 = 不细分',
+      options: existing,
+      placeholder: '新建子分类…',
       confirm: '保存分类',
     });
     if (item === null) return;
@@ -840,7 +892,12 @@
           aria-label="自定义标题">${icon('tag')}<span>自定义标题</span></button>
         <button class="icon-action" type="button" id="insFolder" title="打开文件夹" aria-label="打开文件夹">${icon('folder')}</button>
         ${m.ws ? `<button class="icon-action" type="button" id="insWorkshop" title="打开工坊页" aria-label="打开工坊页">${icon('external')}</button>` : ''}
-        <div class="more-wrap">
+        <!-- 「更多操作」入口**暂时隐藏**（2026-11-21）。
+             原来这里只有「修改分类」一项，现在它的位置是「更多 → 子分类 → 修改」，
+             所以这个三点按钮没有独占功能了。DOM 与事件绑定保留，
+             将来加新的详情操作时把 hidden 去掉即可（见 HANDOFF §9.7）。
+             注意：它藏在中间，别顺手删掉又重写一套。 -->
+        <div class="more-wrap" hidden data-reserved-entry="insMore">
           <button class="icon-action" type="button" id="insMore" title="更多操作" aria-label="更多操作" aria-expanded="false">${icon('more')}</button>
           <div class="more-menu" id="insMoreMenu" hidden>
             <button type="button" data-more="category">修改分类</button>
@@ -1097,6 +1154,24 @@
     if (own) return own;
     const coll = m.coll ? (colls || {})[m.coll] : null;
     return coll ? (coll.name || '').trim() : '';
+  }
+
+  /** 某个一级分类下的子分类列表（**按名称排序**、去重）。
+
+      这是「子分类从哪来」的唯一实现：树、子分类选择器都走它。
+      子分类不落库 —— 它是从模组记录的 item（+合集名回落）现算出来的，
+      所以「用户新建的子分类」在最后一个模组被移走时会自动消失，
+      而管理器自带的（分类器给的 item）也不会被谁偷偷清掉：没人有权限
+      去改别的模组的 item。
+  */
+  function subItemsOf(catName, mods, colls) {
+    const seen = [];
+    (mods || []).forEach((m) => {
+      if (catName && m.cat !== catName) return;
+      const it = displayItem(m, colls);
+      if (it && seen.indexOf(it) < 0) seen.push(it);
+    });
+    return seen.sort((a, b) => a.localeCompare(b, 'zh'));
   }
 
   function collectionTag(m, colls) {

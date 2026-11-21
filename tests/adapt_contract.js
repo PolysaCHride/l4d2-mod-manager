@@ -297,6 +297,48 @@ check('回落不修改原对象（只读兜底）', () => {
   eq(m.item, '', 'displayItem 不能改 m.item');
 });
 
+console.log('\n子分类列表（排序 / 去重 / 自动消失）');
+
+const SUBS_MODS = [
+  { cat: '地图', item: 'Zeta', coll: '' },
+  { cat: '地图', item: 'Alpha', coll: '' },
+  { cat: '地图', item: 'Mid', coll: '' },
+  { cat: '地图', item: 'Alpha', coll: '' },          // 重复
+  { cat: '地图', item: '', coll: 'ws_1' },           // 靠合集名回落
+  { cat: '角色', item: 'Ellis', coll: '' },          // 别的分类
+];
+
+check('按名称排序（不是按数量）', () => {
+  eq(app.subItemsOf('地图', SUBS_MODS, COLLS),
+     ['Alpha', 'Mid', 'The Bloody Moors', 'Zeta']);
+});
+
+check('去重', () => {
+  const list = app.subItemsOf('地图', SUBS_MODS, COLLS);
+  eq(list.filter((x) => x === 'Alpha').length, 1);
+});
+
+check('只看指定一级分类', () => {
+  eq(app.subItemsOf('角色', SUBS_MODS, COLLS), ['Ellis']);
+});
+
+check('item 为空的模组按合集名参与子分类', () => {
+  ok(app.subItemsOf('地图', SUBS_MODS, COLLS).indexOf('The Bloody Moors') >= 0,
+     '合集名没有进入子分类列表');
+});
+
+check('最后一个模组移走后子分类自动消失', () => {
+  const before = app.subItemsOf('地图', SUBS_MODS, COLLS);
+  ok(before.indexOf('Zeta') >= 0, '前置条件：Zeta 应在列表里');
+  const after = app.subItemsOf('地图',
+    SUBS_MODS.filter((m) => m.item !== 'Zeta'), COLLS);
+  eq(after.indexOf('Zeta'), -1, '没有模组引用后不该再出现');
+});
+
+check('没有子分类时返回空数组', () => {
+  eq(app.subItemsOf('枪械', SUBS_MODS, COLLS), []);
+});
+
 console.log('\n卡片合集标签（合集名 (x/x)）');
 
 check('合集成员显示名称与序号', () => {

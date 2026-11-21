@@ -130,6 +130,12 @@ window.__coll = null;
     if (card) card.click();
     await sleep(800);
 
+    // 「⋯ 更多操作」已隐藏（留给将来的功能入口，DOM 保留）
+    const moreWrap = document.querySelector('[data-reserved-entry="insMore"]');
+    out.moreHidden = !moreWrap || moreWrap.hidden
+      || getComputedStyle(moreWrap).display === 'none';
+    ok(out.moreHidden, '详情栏的三点「更多操作」没有隐藏');
+
     const det = document.querySelector('.ins-more');
     ok(!!det, '有合集归属，但详情里没有「更多」块');
     if (det) {
@@ -191,6 +197,43 @@ window.__coll = null;
       ok(!!subInput, '第二步没有子分类输入框');
       ok(subInput.value === (cols[withColl.collection] || {}).name,
          '子分类没有预填当前合集名：' + JSON.stringify(subInput.value));
+
+      // 输入框在第一栏：它必须排在列表前面（DOM 顺序）
+      const body = document.querySelector('#modal-host .dlg-body');
+      const firstField = body.querySelector('#dlgInput');
+      const list = body.querySelector('#subList');
+      ok(!!list, '选择器里没有现有子分类列表');
+      ok(firstField && list && (firstField.compareDocumentPosition(list)
+         & Node.DOCUMENT_POSITION_FOLLOWING), '输入框没有排在列表前面');
+
+      // 列表可滚动、且内容真的超过高度
+      const rows = [...list.querySelectorAll('.sub-item')];
+      out.subOptions = rows.length;
+      ok(rows.length > 0, '列表是空的（该分类下明明有子分类）');
+      const cs = getComputedStyle(list);
+      out.subScrollable = (cs.overflowY === 'auto' || cs.overflowY === 'scroll');
+      ok(out.subScrollable, '列表不是可滚动的：overflowY=' + cs.overflowY);
+      ok(list.scrollHeight > list.clientHeight,
+         '列表内容没有超过高度，滚动条验证不了（' + list.scrollHeight + ' vs ' + list.clientHeight + '）');
+
+      // 列表按名称排序
+      const names = rows.map((r) => r.dataset.sub);
+      const sorted = names.slice().sort((a, b) => a.localeCompare(b, 'zh'));
+      out.subSorted = JSON.stringify(names) === JSON.stringify(sorted);
+      ok(out.subSorted, '子分类没有按名称排序');
+
+      // 点现有项 → 填进输入框
+      const pick = rows.find((r) => r.dataset.sub !== subInput.value);
+      if (pick) {
+        pick.click();
+        await sleep(150);
+        out.pickedValue = subInput.value;
+        ok(out.pickedValue === pick.dataset.sub,
+           '点现有子分类没有填进输入框：' + JSON.stringify(out.pickedValue));
+        ok(pick.classList.contains('active'), '选中项没有高亮');
+      }
+
+      // 再改成一个新的名字（= 新建子分类）
       const setter = Object.getOwnPropertyDescriptor(
         window.HTMLInputElement.prototype, 'value').set;
       setter.call(subInput, '沼泽测试');
@@ -225,6 +268,23 @@ window.__coll = null;
       const tagBack = (document.querySelector('.mod-card.selected .mod-coll') || {}).textContent || '';
       out.tagAfterRevert = tagBack;
       ok(/\(\d+\/\d+\)$/.test(tagBack), '归回后卡片标签没有恢复 (x/x)：' + JSON.stringify(tagBack));
+
+      // 「用户新建的子分类」在最后一个模组被移走后必须自动消失，
+      // 而管理器自带的（The Bloody Moors 这些）不受影响。
+      await sleep(400);
+      const treeNames = [...document.querySelectorAll('.filter-row .item-name')]
+        .map((e) => e.textContent);
+      out.autoCleared = treeNames.indexOf('沼泽测试') < 0;
+      ok(out.autoCleared, '新建的子分类在没模组之后仍然留在树上：沼泽测试');
+      out.builtinKept = ['Divine Cybermancy', 'The Bloody Moors']
+        .every((n) => treeNames.indexOf(n) >= 0);
+      ok(out.builtinKept, '管理器自带的子分类被误删了');
+
+      // 树的子分类按名称排序（「全部X」在第一、「未指定物品」紧随其后）
+      const plain = treeNames.filter((n) => !n.startsWith('全部') && n !== '未指定物品');
+      out.treeSorted = JSON.stringify(plain)
+        === JSON.stringify(plain.slice().sort((a, b) => a.localeCompare(b, 'zh')));
+      ok(out.treeSorted, '树的子分类没有按名称排序');
 
       // 收尾：清掉 pinned / auto_*，把记录还原成采样前状态
       await window.bridge.restore_auto_category(withColl.file);
@@ -309,6 +369,11 @@ def run(win):
     print("[coll] 子分类：行=%s 改后卡片=%r 归回后=%r 归回按钮=%s 收尾清 pinned=%s"
           % (out.get("hasSubRow"), out.get("tagAfterEdit"), out.get("tagAfterRevert"),
              out.get("revertBtn"), not out.get("pinnedAfterCleanup")), flush=True)
+    print("[coll] 选择器：现有 %s 项 可滚动=%s 已排序=%s；树上按名排序=%s；"
+          "新建项自动清除=%s；自带项保留=%s；⋯ 已隐藏=%s"
+          % (out.get("subOptions"), out.get("subScrollable"), out.get("subSorted"),
+             out.get("treeSorted"), out.get("autoCleared"), out.get("builtinKept"),
+             out.get("moreHidden")), flush=True)
     errors = out.get("errors") or []
     if errors:
         for e in errors:
