@@ -15,35 +15,35 @@
     { file: 'm1.vpk', title: 'Koharu [Replace Ellis]', alias: '', category: '角色',
       item: 'Ellis', size: 116.1e6, sizeText: '116.1 MB', enabled: false,
       workshop_id: '', thumb: 'assets/mods/mod1.webp', added: Date.now() - 2 * 86400000,
-      addedText: '2 天前', pinned: false, mutex: true },
+      addedText: '2 天前', pinned: false },
     { file: 'm3.vpk', title: 'VRC プラム Plum replace ellis', alias: '夏日甜点屋',
       category: '角色', item: 'Ellis', size: 34.1e6, sizeText: '34.1 MB', enabled: true,
       workshop_id: '3659210344', thumb: 'assets/mods/mod3.webp',
-      added: Date.now() - 7 * 86400000, addedText: '1 周前', pinned: false, mutex: true },
+      added: Date.now() - 7 * 86400000, addedText: '1 周前', pinned: false },
     { file: 'm4.vpk', title: '[Gakuen IDOLM@STER] Fujita', alias: '', category: '角色',
       item: 'Ellis', size: 146.4e6, sizeText: '146.4 MB', enabled: false,
       workshop_id: '3671024551', thumb: 'assets/mods/mod4.webp',
-      added: Date.now() - 9 * 86400000, addedText: '1 周前', pinned: false, mutex: true },
+      added: Date.now() - 9 * 86400000, addedText: '1 周前', pinned: false },
     { file: 'm2.vpk', title: 'VRC lime 甜点屋 打歌服', alias: '', category: '角色',
       item: 'Ellis', size: 93.0e6, sizeText: '93.0 MB', enabled: false,
       workshop_id: '3664792140', thumb: 'assets/mods/mod2.webp',
-      added: Date.now() - 4 * 86400000, addedText: '4 天前', pinned: false, mutex: true },
+      added: Date.now() - 4 * 86400000, addedText: '4 天前', pinned: false },
     { file: 'm5.vpk', title: '【原神】菲谢尔 极夜真梦', alias: '', category: '角色',
       item: 'Ellis', size: 38.3e6, sizeText: '38.3 MB', enabled: false,
       workshop_id: '3648830117', thumb: 'assets/mods/mod5.webp',
-      added: Date.now() - 12 * 86400000, addedText: '1 周前', pinned: false, mutex: true },
+      added: Date.now() - 12 * 86400000, addedText: '1 周前', pinned: false },
     { file: 'm6.vpk', title: '雨衣替换 Ellis', alias: '', category: '角色',
       item: 'Ellis', size: 246.6e6, sizeText: '246.6 MB', enabled: false,
       workshop_id: '3639905428', thumb: 'assets/mods/mod6.webp',
-      added: Date.now() - 18 * 86400000, addedText: '2 周前', pinned: false, mutex: true },
+      added: Date.now() - 18 * 86400000, addedText: '2 周前', pinned: false },
     { file: 'w1.vpk', title: 'AK-47 | 霓虹风暴', alias: '', category: '枪械',
       item: 'AK-47', size: 56.8e6, sizeText: '56.8 MB', enabled: true,
       workshop_id: '', thumb: 'assets/mods/mod2.webp', added: Date.now() - 86400000,
-      addedText: '今天', pinned: false, mutex: true },
+      addedText: '今天', pinned: false },
     { file: 'w2.vpk', title: 'M16A2 | 数码迷彩', alias: '', category: '枪械',
       item: 'M16A2', size: 40.1e6, sizeText: '40.1 MB', enabled: true,
       workshop_id: '', thumb: 'assets/mods/mod6.webp', added: Date.now() - 8 * 86400000,
-      addedText: '1 周前', pinned: false, mutex: true },
+      addedText: '1 周前', pinned: false },
   ];
 
   const MOCK = {
@@ -226,15 +226,6 @@
       m.enabled = !!enabled;
       return { ok: true, enabled: m.enabled, disabled_siblings: [] };
     },
-
-    // 组级互斥开关（按「分类 + 物品」）
-    set_group_mutex: async (category, item, enabled) => {
-      const res = await call('set_group_mutex', category, item, enabled);
-      if (res) return res;
-      return { ok: true, mutex: !!enabled };
-    },
-    get_group_mutex: async (category, item) =>
-      (await call('get_group_mutex', category, item)) || { ok: true, mutex: true },
 
     set_alias: async (file, alias) => {
       const res = await call('set_alias', file, alias);

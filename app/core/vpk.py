@@ -216,7 +216,12 @@ def vpk_parts(path):
 
 
 def parse_keyvalues(text):
-    """解析 addoninfo.txt / mission txt 为嵌套 dict（值均为字符串，重复键保留第一个）。"""
+    """解析 addoninfo.txt / mission txt 为嵌套 dict（值均为字符串，重复键保留第一个）。
+
+    ⚠️ 键名大小写**保留原样**（作者怎么写就怎么存）：真实 VPK 里
+    addoninfo 的键既有 `AddonTitle` 也有 `addontitle`，两种都很常见。
+    所以取值方必须自己兼容大小写 —— 见 `lookup_ci()`。
+    """
     tokens = _tokenize(text)
     pos = [0]
 
@@ -285,8 +290,37 @@ def _tokenize(text):
     return tokens
 
 
+def lookup_ci(mapping, *names, default=None):
+    """在 dict 里**忽略大小写**查键，按 names 的顺序返回第一个非空值。
+
+    为什么需要：`parse_keyvalues` 保留作者的原始大小写，而真实 VPK 里
+    addoninfo 的键既有 `AddonTitle` 也有 `addontitle`。
+    直接 `info.get("addonTitle")` 会漏掉后者 —— 实测真实库里有 4 个模组
+    因为这个问题，标题退化成工坊 ID（如 "3009143766"）。
+    """
+    if not isinstance(mapping, dict):
+        return default
+    lowered = {}
+    for k in mapping:
+        lowered.setdefault(str(k).lower(), k)
+    for name in names:
+        real = lowered.get(str(name).lower())
+        if real is None:
+            continue
+        val = mapping.get(real)
+        if val is None:
+            continue
+        if isinstance(val, str) and not val.strip():
+            continue
+        return val
+    return default
+
+
 def extract_addoninfo(vpk):
-    """读取 addoninfo.txt，返回 dict 或 None。"""
+    """读取 addoninfo.txt，返回 dict 或 None。
+
+    键名大小写保留作者原样，取值请用 `lookup_ci()`。
+    """
     try:
         data = vpk.read_file("addoninfo.txt")
     except (VpkError, OSError):
@@ -295,7 +329,7 @@ def extract_addoninfo(vpk):
         return None
     text = data.decode("utf-8", errors="replace")
     kv = parse_keyvalues(text)
-    info = kv.get("AddonInfo")
+    info = lookup_ci(kv, "AddonInfo")
     return info if isinstance(info, dict) else (kv if kv else None)
 
 

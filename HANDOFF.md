@@ -338,18 +338,33 @@ job_id = self._runner.start("your-kind", run)
 
 已修。如果你要碰合集相关代码，记住这个类型。
 
-### 6.5 ⚠️ 互斥类别有 4 份定义
+### 6.5 ⚠️ 互斥机制已整体拆除（2026-11-21）
 
-```
-app/core/classify.py:25      CONFLICT_CATEGORIES   ← 真正的源头
-app/shell/api.py:33          MUTEX_CATS            ← 副本
-app/ui/main_window.py:48     MUTEX_CATS            ← 副本
-app/webui/app.js:106         MUTEX_CATEGORIES      ← 副本
-```
+**这一节原来讲的是「互斥类别有 4 份副本」的风险。现在情况变了：互斥机制被完全拆掉了。**
 
-**当前四处取值完全一致**，但改一处忘三处 → 后端会静默停用用户的模组，而前端不弹确认框。这种 bug 极难复现。
+用户裁定：**放弃互斥组实现，让用户自行管理冲突模组。** 具体：
 
-真正该做的是从 core 生成一份注入前端（`bootstrap` 里加 `enums` 字段）。本期没做。
+| 拆掉的 | 位置 |
+|---|---|
+| 组级互斥开关（`settings.json` 的 `mutex_off_groups`） | 全链删除 |
+| 启用时自动停用同组其它项 | `api.toggle_mod` 固定 `mutex=False` |
+| 导入/下载后自动切换到新模组 | `library.enable_new_mods` 去掉互斥段 |
+| 「整理」时每组强制只留一个 | `library._settle_conflict_selections` 整个删除 |
+| 前端「N 组待处理」提示 + 批量处理对话框 | 删除 |
+| Inspector 的「同组」面板 | 整块删除 |
+| 启用前的「会停用同组 X 个」确认框 | 删除 |
+
+**保留的**：`classify.CONFLICT_CATEGORIES` 常量 —— 分类器内部仍用它标注
+「这是外观类」，只是不再是 UI 概念、不再驱动启停行为。
+
+**行为变化（用户可感知）**：
+
+- 启用任意模组都**不会**连带停用任何东西
+- 同一「分类+物品」可以同时启用多个（游戏里通常后加载的覆盖前面的）
+- 导入 5 个同组皮肤 → 5 个全启用，不再只留最后一个
+
+完整方案与验证清单见 `docs/PLAN_REMOVE_MUTEX.md`。
+回滚：`git revert <commit>` 或 `git show dde9690:app/webui/app.js`。
 
 ### 6.6 ⚠️ `app/ui/` 不要急着删
 
@@ -508,9 +523,13 @@ def progress(text, done=0, current=""):
 
 ⚠️ `api.py` 里 `is_l4d2_running()` 失败时被 `except: pass` 吞成 `False` —— 意味着检测失败时会**放行写入**。这是个已知隐患，见 9.2。
 
-### 7.3 为什么 Inspector 的同组切换有确认框，而双击没有
+### 7.3 ~~为什么 Inspector 的同组切换有确认框，而双击没有~~（已作废）
 
-都有。两处走同一套逻辑（本期统一了）。原则是：**启用一个外观模组时，如果有同组已启用的，先告诉用户会被顶掉。**
+> **2026-11-21：互斥机制已整体拆除，这条不再成立。**
+> 现在启用任何模组都不弹同组确认框，也不停用任何东西。
+> 见 §6.5 与 `docs/PLAN_REMOVE_MUTEX.md`。
+
+原本两处走同一套逻辑：启用外观模组时若同组已有启用的，先告诉用户会被顶掉。
 
 ### 7.4 为什么「入库时间」用 `added_at` 而不是 `mtime`
 
@@ -571,6 +590,44 @@ def progress(text, done=0, current=""):
 | 16 | `app/webui/assets/mods/*.webp` 6 张图只用于 mock | ⬜ 未动 |
 | 17 | `app.js` 里的 `DEMO_MODS`（29 行演示数据）与 mock 重复 | ⬜ 未动，可随 P2 一起清 |
 | 18 | `chapters` 是无人读写的遗留字段（197/200 条带它） | ⬜ 已记录进 `DATA_SCHEMA.md` §2.3 |
+
+### 8.6 第五轮（2026-11-21）：拆除互斥机制 + 标题回归修复
+
+| 项 | 结果 |
+|---|---|
+| 互斥机制整体拆除 | ✅ 前端 10 处 + 后端 4 处 + core 2 处全部删除，净删约 385 行 |
+| 清单与验证 | ✅ `docs/PLAN_REMOVE_MUTEX.md`，8 条验证全部实测 |
+| 备份 | ✅ `dde9690` + `.tmp/mutex_removal_backup.patch` |
+| ~~标题 bug 修复~~ | ✅ `addoninfo` 键大小写（`addontitle` 被漏掉，4 个标题退化成工坊 ID） |
+| **标题回归** | ⚠️ **踩了一次坑并已修正**，见下 |
+
+#### ⚠️ 第五轮的真实事故：修 bug 引发更大回归
+
+修好大小写 bug 后 `CLF_VERSION` +1 → 全库重扫 → **136 个标题变化**：
+
+```
+2050209573  CSGO AK47 | Azur Lane-Saratoga(Glowing)  →  AK-47 Saratoga
+241776737   Go! Pokeball! (Vomit jar)                →  Pokeball.
+```
+
+更糟的是出现 **11 组「多个不同文件同名」**（`Divine Cybermancy × 4`、
+`地心引力 × 4`…），用户分不清谁是谁。
+
+**根因**：这些标题原来是 `_enrich_from_workshop()` 从工坊 API 拉的，
+比 `addoninfo` 里的好得多。重扫无条件用 addoninfo 覆盖，把它们冲掉了。
+
+**修复**：
+1. 回滚 `library.json` 到重扫前
+2. 加 `title_locked` 字段，一次性迁移把 195 条（有 workshop_id 且标题非纯数字）加锁
+3. `_scan_one` 的 `old` 分支保留 `title_locked` 与锁定标题
+4. 再重扫 → **只 4 个标题变化**，全是原来退化成工坊 ID 的，全部修好
+
+**教训（写进 `DATA_SCHEMA.md` §2.1.2）**：
+改分类器/标题逻辑前，先想清楚「重扫会不会覆盖掉在线补全的结果」。
+`title_locked` 就是给这类「外部来源优于包内元数据」的字段准备的机制。
+
+> 分类规则回归测试见 `tests/test_classify_rules.py`（21 项），
+> 包含误伤防护 + `title_locked` 跨重扫保留。
 
 ### 8.4 对齐审查（2026-11-20 第三轮）的落地情况
 

@@ -45,17 +45,15 @@ function ok(cond, what) {
 const BACKEND_FIELDS = [
   'file', 'title', 'alias', 'category', 'item',
   'size', 'sizeText', 'enabled', 'workshop_id', 'thumb',
-  'added', 'addedText', 'pinned', 'mutex',
+  'added', 'addedText', 'pinned',
   'autoCategory', 'autoItem', 'collection',
-  'mutexApplicable', 'groupMutex',
 ];
 
 // adapt() 的输出字段集。加字段必须显式改这里。
 const FRONTEND_FIELDS = [
   'id', 'name', 'alias', 'cat', 'item', 'size', 'img',
-  'enabled', 'added', 'addedDate', 'file', 'ws', 'mutex',
+  'enabled', 'added', 'addedDate', 'file', 'ws',
   'pinned', 'autoCat', 'autoItem', 'coll',
-  'mutexApplicable', 'groupMutex',
 ];
 
 // 后端有、但 adapt 有意不接的字段。
@@ -76,12 +74,9 @@ function baseRecord(over) {
     added: 1729087521,
     addedText: '2 天前',
     pinned: false,
-    mutex: true,
     autoCategory: null,
     autoItem: null,
     collection: '',
-    mutexApplicable: true,
-    groupMutex: true,
   }, over || {});
 }
 
@@ -98,14 +93,12 @@ check('后端每个字段都被 adapt 显式处理（接收或明确丢弃）', 
   const handled = new Set(DROPPED_BY_ADAPT.concat([
     // 字段改名映射：后端名 → 前端名
     'file', 'title', 'alias', 'category', 'item',
-    'size', 'enabled', 'workshop_id', 'thumb', 'added', 'mutex',
+    'size', 'enabled', 'workshop_id', 'thumb', 'added',
     // 2026-11-20 新增的映射
     'pinned',        // → pinned（原样）
     'autoCategory',  // → autoCat
     'autoItem',      // → autoItem
     'collection',    // → coll
-    'mutexApplicable', // → mutexApplicable
-    'groupMutex',      // → groupMutex
   ]));
   const unhandled = BACKEND_FIELDS.filter((f) => !handled.has(f));
   eq(unhandled, [], '这些后端字段既没被 adapt 接收、也没登记为丢弃');
@@ -181,11 +174,6 @@ check('workshop_id → ws 原样保留为字符串', () => {
   eq(app.adapt(baseRecord({ workshop_id: undefined })).ws, '', 'undefined → 空串');
 });
 
-check('mutex 严格布尔', () => {
-  eq(app.adapt(baseRecord({ mutex: true })).mutex, true, 'true');
-  eq(app.adapt(baseRecord({ mutex: undefined })).mutex, false, 'undefined');
-});
-
 check('pinned：后端传了就必须接住（原来被静默丢弃）', () => {
   eq(app.adapt(baseRecord({ pinned: true })).pinned, true, 'pinned=true');
   eq(app.adapt(baseRecord({ pinned: false })).pinned, false, 'pinned=false');
@@ -229,13 +217,6 @@ check('空对象不抛异常且给出安全默认值', () => {
 
 console.log('\n枚举一致性');
 
-check('MUTEX_CATEGORIES 与 core 的 CONFLICT_CATEGORIES 一致', () => {
-  // 与 tests/test_webui_contract.py 的 test_mutex_categories_match_core 是同一条断言，
-  // 两边都跑：Python 侧防前端改坏，Node 侧防 core 改而前端没跟上。
-  const expected = ['角色', '特感', '枪械', '近战', '医疗品', '投掷'];
-  eq(Array.from(app.MUTEX_CATEGORIES).sort(), expected.slice().sort(), '互斥类别');
-});
-
 check('CATEGORY_OPTIONS 覆盖 core 的 CATEGORIES', () => {
   const coreCats = ['角色', '特感', '枪械', '近战', '医疗品', '投掷',
     'UI', '音效音乐', '载具', '弹药', '材质特效', '动作',
@@ -266,79 +247,6 @@ check('检测失败(unknown=true)时也禁止写入', () => {
 
 check('只有两者都 false 才放行', () => {
   eq(app.writeBlockedOf(false, false), '', '可以写时返回空串');
-});
-
-console.log('\n冲突计数');
-
-check('只统计互斥类别里的重复项', () => {
-  const list = [
-    { enabled: true, cat: '角色', item: 'Ellis' },
-    { enabled: true, cat: '角色', item: 'Ellis' },   // 冲突
-    { enabled: true, cat: '地图', item: '死亡中心' },
-    { enabled: true, cat: '地图', item: '死亡中心' }, // 地图不互斥，不算冲突
-  ];
-  eq(app.countConflictsOf(list), 1, '只应数出 1 组');
-});
-
-check('同组只有一个启用项时不算冲突', () => {
-  const list = [
-    { enabled: true, cat: '角色', item: 'Ellis' },
-    { enabled: false, cat: '角色', item: 'Ellis' },
-  ];
-  eq(app.countConflictsOf(list), 0, '一开一关不算冲突');
-});
-
-check('item 为空的不参与冲突判定', () => {
-  const list = [
-    { enabled: true, cat: '角色', item: '' },
-    { enabled: true, cat: '角色', item: '' },
-  ];
-  eq(app.countConflictsOf(list), 0, '空 item 是整体类，不互斥');
-});
-
-console.log('\n同组判定（sameGroup 的 collection 排除规则）');
-
-function mod(over) {
-  return Object.assign({ id: 'a.vpk', cat: '地图', item: 'Yama', coll: '' }, over || {});
-}
-
-check('cat + item 相同 → 同组', () => {
-  ok(app.isSameGroup(mod(), mod({ id: 'b.vpk' })), '应判定为同组');
-});
-
-check('cat 不同 → 不同组', () => {
-  ok(!app.isSameGroup(mod(), mod({ id: 'b.vpk', cat: '角色' })), '分类不同不该同组');
-});
-
-check('item 不同 → 不同组', () => {
-  ok(!app.isSameGroup(mod(), mod({ id: 'b.vpk', item: 'Day Break' })), 'item 不同不该同组');
-});
-
-check('自己和自己不算同组', () => {
-  ok(!app.isSameGroup(mod(), mod()), '同一个 id 不该算同组（会把自己列进「同组」面板）');
-});
-
-check('两个不同合集里的同名地图 → 不算同组', () => {
-  // 这是结构性风险点：两个作者的地图恰好都叫 Yama，但分属不同合集。
-  // 不排除的话，用户在「同组」面板里会看到两个不相干的地图，
-  // 启用一个会顶掉另一个。
-  const a = mod({ id: 'a.vpk', coll: 'ws_111' });
-  const b = mod({ id: 'b.vpk', coll: 'ws_222' });
-  ok(!app.isSameGroup(a, b), '不同合集 + 同名 → 不该算同组');
-});
-
-check('同一个合集里的多部件 → 算同组', () => {
-  const a = mod({ id: 'a.vpk', coll: 'ws_111' });
-  const b = mod({ id: 'b.vpk', coll: 'ws_111' });
-  ok(app.isSameGroup(a, b), '同合集应当同组');
-});
-
-check('一边有合集、一边没有 → 仍算同组（保持旧行为）', () => {
-  // 只有一边有归属时无法判断是否真属于不同合集，保守起见按同组处理，
-  // 避免漏掉真正的互斥冲突（误报互斥比漏报安全）。
-  const a = mod({ id: 'a.vpk', coll: 'ws_111' });
-  const b = mod({ id: 'b.vpk', coll: '' });
-  ok(app.isSameGroup(a, b), '一边无归属时按同组处理');
 });
 
 console.log('');

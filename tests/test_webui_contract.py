@@ -41,7 +41,7 @@ class TestToModContract(unittest.TestCase):
         self.assertEqual(set(out), {
             "file", "title", "alias", "category", "item",
             "size", "sizeText", "enabled", "workshop_id", "thumb",
-            "added", "addedText", "pinned", "mutex",
+            "added", "addedText", "pinned",
             # 2026-11-20 新增：
             # autoCategory/autoItem —— 用户改过分类后，保留分类器原本的结果
             # （前端把识别结果置灰展示，见 ALIGNMENT_AUDIT C）
@@ -49,12 +49,9 @@ class TestToModContract(unittest.TestCase):
             # collection —— 所属合集 ID，之前被丢弃导致合集在新 UI 完全隐形
             # （见 ALIGNMENT_AUDIT A-1）
             "collection",
-            # 组级互斥开关（2026-11-20）：
-            #   mutexApplicable = 这类模组参与互斥（互斥类别 + item 非空）
-            #   groupMutex      = 它所在的那个「分类+物品」组当前是否真的在互斥
-            "mutexApplicable", "groupMutex",
+            # 注：2026-11-20 起 interop 已**没有** mutex / mutexApplicable /
+            # groupMutex —— 互斥机制整体拆除（见 docs/PLAN_REMOVE_MUTEX.md）。
         })
-
     def test_dropped_fields_are_explicit(self):
         """core 有但没传给前端的字段，必须在这里声明。
 
@@ -148,30 +145,6 @@ class TestToModContract(unittest.TestCase):
         """前端依赖严格的布尔值（用的是 !!x 和 ===）。"""
         self.assertIs(self.api._to_mod(self._rec(enabled=1))["enabled"], True)
         self.assertIs(self.api._to_mod(self._rec(enabled=0))["enabled"], False)
-
-    def test_mutex_matches_core(self):
-        """mutex 标记必须与 core 的冲突类别一致。"""
-        from app.core.classify import CONFLICT_CATEGORIES
-        for cat in ("角色", "枪械", "地图", "杂项"):
-            got = self.api._to_mod(self._rec(category=cat))["mutex"]
-            self.assertEqual(got, cat in CONFLICT_CATEGORIES, cat)
-
-
-class TestEnumConsistency(unittest.TestCase):
-    """枚举在多处定义，必须保持一致。"""
-
-    def test_mutex_categories_match_core(self):
-        from app.core.classify import CONFLICT_CATEGORIES
-
-        # 前端那份
-        js = (ROOT / "app" / "webui" / "app.js").read_text(encoding="utf-8")
-        m = re.search(r"MUTEX_CATEGORIES\s*=\s*new Set\(\[([^\]]+)\]\)", js)
-        self.assertIsNotNone(m, "前端找不到 MUTEX_CATEGORIES")
-        js_set = {s.strip().strip("'\"") for s in m.group(1).split(",") if s.strip()}
-
-        self.assertEqual(CONFLICT_CATEGORIES, js_set,
-                         "前端互斥类别与 core 不一致 —— "
-                         "会导致后端静默停用但前端不弹确认")
 
     def test_frontend_covers_all_core_categories(self):
         """前端 rail 的并集必须覆盖 core 的所有分类，否则模组会「消失」。"""

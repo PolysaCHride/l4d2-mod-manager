@@ -231,17 +231,6 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
   margin-left: 12px; padding-left: 14px; border-left: 1px solid #262d27;
 }
 
-.conflict-line {
-  margin-top: 12px; padding: 6px 8px;
-  display: flex; align-items: center; gap: 6px;
-  border: 1px solid #332c1d; border-radius: 3px; background: #131109;
-  color: #9a8f70; font-size: 9.5px;
-}
-.conflict-line svg.i { width: 12px; height: 12px; color: #b99a5e; }
-.conflict-line b { color: #d8b878; font-weight: 600; }
-.conflict-line button { margin-left: auto; color: #b99a5e; font-size: 9px; }
-.conflict-line button:hover { color: #e8c98c; }
-
 /* ---------------------------------------------------------- main */
 .main { min-width: 0; flex: 1; display: flex; flex-direction: column; }
 
@@ -468,24 +457,6 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 .switch.on { background: var(--accent); border-color: var(--accent); }
 .switch.on .knob { transform: translateX(15px); background: var(--accent-ink); }
 .switch[disabled] { opacity: .4; cursor: default; }
-/* 小号开关（组级互斥用）：没有 .knob 子元素，用伪元素画滑块 */
-.switch.sm { width: 28px; height: 16px; }
-.switch.sm::after {
-  content: ''; position: absolute; top: 2px; left: 2px;
-  width: 10px; height: 10px; border-radius: 50%; background: #758064;
-  transition: transform .16s ease, background .16s ease;
-}
-.switch.sm.on::after { transform: translateX(12px); background: var(--accent-ink); }
-
-/* 同组面板里的组级互斥行 */
-.group-mutex {
-  display: flex; align-items: center; gap: 10px;
-  margin: 2px 0 8px; padding: 7px 8px;
-  border: 1px solid #252c27; border-radius: 4px; background: #0b0e0c;
-}
-.group-mutex-copy { flex: 1; min-width: 0; }
-.group-mutex-copy b { display: block; color: #9aa49a; font-size: 9.5px; font-weight: 600; }
-.group-mutex-copy small { display: block; margin-top: 2px; color: #5f6a61; font-size: 8.5px; line-height: 1.5; }
 
 /* ---------------------------------------------------------- 07 Inspector */
 .inspector {
@@ -543,16 +514,6 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
   cursor: pointer;
 }
 .spec-restore:hover { border-color: var(--accent); color: var(--accent); }
-
-.group-panel { padding: 10px; border: 1px solid #252c27; border-radius: 5px; background: #0f1210; }
-.group-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; color: #9aa49a; font-size: 9.5px; }
-.group-head .group-count { color: #66716a; font-family: "Cascadia Mono", monospace; }
-.group-mini { display: flex; align-items: center; gap: 8px; padding: 3px 0; color: #6f7a71; font-size: 9.5px; cursor: pointer; }
-.group-mini img { width: 24px; height: 18px; object-fit: cover; border-radius: 2px; filter: saturate(.6); }
-.group-mini span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.group-mini svg.i { width: 12px; height: 12px; color: var(--accent); }
-.group-mini:hover { color: #cbd6c2; }
-.group-mini.active { color: #b9ca8c; }
 
 .inspector-actions { margin-top: auto; padding-top: 2px; display: flex; align-items: center; gap: 3px; }
 .icon-action { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 4px; color: #7f8a80; }

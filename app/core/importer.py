@@ -170,7 +170,8 @@ def _inspect_candidate(rep, archive, library):
         category, item, tags = clf.classify_paths(
             vpk.paths(), addoninfo=info, mission=mission)
         if isinstance(info, dict):
-            title = str(info.get("addonTitle") or "").strip() or title
+            # 同上：addoninfo 的键大小写不统一，忽略大小写查
+            title = str(vpkmod.lookup_ci(info, "AddonTitle") or "").strip() or title
         if title == stem and mission:
             title = (str(mission.get("DisplayTitle") or mission.get("Name") or "").strip()
                      or title)

@@ -128,15 +128,67 @@ class Library(object):
 
         stem = os.path.splitext(file_name)[0]
         workshop_id = stem if stem.isdigit() else ""
+        old_title = str((old or {}).get("title") or "").strip()
+
+        # ---- 标题的优先级（2026-11-21 修正）----
+        # 1. addoninfo 的标题（作者自己写在包里的，通常是繁体/多语言混排的原始名）
+        # 2. mission 的 DisplayTitle（战役名）
+        # 3. 工坊 ID / 文件名
+        # 4. **已有的旧标题 —— 但如果它来自工坊在线补全，要保住**
+        #
+        # 为什么需要 4：`_enrich_from_workshop()` 会用工坊接口拉到**更干净**的标题
+        # （作者上传时填的英文名），比 vpk 里的 addoninfo 更可读。
+        # 重扫时若无条件用 addoninfo 覆盖，会把这批在线结果冲掉 ——
+        # 实测一次重扫让 136 个标题变化，其中 11 组变成「多个不同文件同名」
+        # （Divine Cybermancy × 4、地心引力 × 4 …），用户完全分不清谁是谁。
+        #
+        # 判定「旧标题更值得保留」的依据：旧标题非空、不是纯数字/文件名，
+        # 且新标题为空或是纯数字（即取不到好名字）。
+        # 反之，旧标题是纯数字而新标题有内容 → 采信新标题（这是本次修的大小写 bug）。
+        def _is_junk(t):
+            """标题是不是"没信息量"的：空、纯数字、或就是文件名主干。"""
+            t = str(t or "").strip()
+            if not t:
+                return True
+            if t.isdigit():
+                return True
+            if t.lower() == stem.lower():
+                return True
+            return False
+
         title = ""
         if isinstance(info, dict):
-            title = str(info.get("addonTitle") or "").strip()
+            # 键名大小写不统一（AddonTitle / addontitle 都常见），必须忽略大小写查。
+            # 只写 info.get("addonTitle") 会让后者全部退化成工坊 ID。
+            title = str(vpkmod.lookup_ci(info, "AddonTitle") or "").strip()
         if not title and mission:
             title = str(mission.get("DisplayTitle") or mission.get("Name") or "").strip()
         if not title:
             title = workshop_id or stem
+
+        # mission 的 DisplayTitle 是**游戏里显示的战役名**，比 addoninfo 更权威。
+        # 但多部件地图的每个部件共用同一个 mission（DisplayTitle 相同），
+        # 而 addoninfo 常带 "Part 2/4" 这类区分信息 —— 所以只在
+        # 「mission 标题是在 addoninfo 标题基础上补充信息」时才采信 mission。
+        #   例："We Don't Go To Ravenholm"（addoninfo）
+        #       vs "We Don't Go To Ravenholm 2"（mission）→ 用 mission
+        if isinstance(mission, dict) and title:
+            m_title = str(mission.get("DisplayTitle") or mission.get("Name") or "").strip()
+            if m_title and m_title != title and m_title.startswith(title):
+                title = m_title
+
+        # 旧标题更好时保住它（详见上面 4 的说明）
+        if old_title and not _is_junk(old_title) and _is_junk(title):
+            title = old_title
         if not title or title.isdigit():
-            title = (old or {}).get("title") or title  # 保留在线补全过的标题
+            title = old_title or title
+
+        # `title_locked`：该标题来自工坊在线补全（或用户手工改过），重扫时不覆盖。
+        # 这是在 2026-11-21 修标题 bug 时引入的 —— 因为库里没有记录标题来源，
+        # 无法事后区分「vpk 自带的」和「在线拉的」，只能显式标记一次。
+        # 迁移脚本见 docs/DATA_SCHEMA.md §2.4。
+        if (old or {}).get("title_locked"):
+            title = old_title or title
 
         rec = new_mod_record(file_name)
         preview = self.preview_for(file_name) or (old or {}).get("preview", "")
@@ -160,6 +212,12 @@ class Library(object):
             if "auto_category" in old:
                 rec["auto_category"] = old["auto_category"]
                 rec["auto_item"] = old.get("auto_item", "")
+            # 标题来自工坊在线补全 → 重扫不要覆盖，且下次重扫仍然要认得这个标记。
+            # 不保留的话，一次重扫就把标记冲掉，第二次重扫又开始用 addoninfo 的差标题。
+            if old.get("title_locked"):
+                rec["title_locked"] = True
+                if old.get("title"):
+                    rec["title"] = old["title"]
             if old.get("pinned"):
                 rec.update({"pinned": True, "category": old["category"], "item": old["item"]})
         return rec, True
@@ -316,6 +374,8 @@ class Library(object):
             title = str(d.get("title") or "").strip()
             if title:
                 r["title"] = title
+                # 标记这个标题来自工坊 API，重扫时不要被 vpk 里的 addoninfo 覆盖
+                r["title_locked"] = True
                 changed = True
             if not r.get("preview") and d.get("preview_url"):
                 try:
@@ -580,87 +640,30 @@ class Library(object):
         return rec
 
     def enable_new_mods(self, file_names):
-        """批量启用新入库的 mod；同一互斥组只保留最后入库的一个。
+        """批量启用新入库的 mod，返回被自动禁用的文件名。
 
-        互斥组内其余已启用 mod（包括本批更早的与库中已有的）自动禁用，
-        因此导入/下载后默认切换到最新加入的 mod。返回被自动禁用的文件名。
+        ⚠️ 2026-11-20 起**不再做互斥**（用户要求自行管理冲突）：
+        新模组只是被设为启用，**不会**再自动停用同组的旧模组。
+        因此返回值恒为空列表 —— 保留这个返回类型是为了兼容调用方。
+
+        历史行为（已移除）：同一互斥组只保留最后入库的一个，
+        其余已启用的自动记为 "0"。那会让「下载一个新皮肤，旧皮肤被静默关掉」。
         """
         names = [str(name) for name in file_names if name]
         if not names:
             return []
         al = AddonList.load(self.paths.addonlist_file)
-        winners = {}
         for name in names:
             rec = self.store.get_mod(name)
             if rec is None:
                 continue
             al.set(name, "1")
             rec["enabled"] = True
-            if rec.get("category") in clf.CONFLICT_CATEGORIES and rec.get("item"):
-                winners[(rec["category"], rec["item"])] = name
-        disabled = []
-        if winners:
-            for rec in self.store.mods().values():
-                winner = winners.get((rec.get("category"), rec.get("item")))
-                if not winner or rec["file"] == winner or not rec.get("enabled"):
-                    continue
-                al.set(rec["file"], "0")
-                rec["enabled"] = False
-                disabled.append(rec["file"])
         al.save(self.paths.addonlist_file)
         self.store.save_library()
-        return disabled
+        return []
 
     # ---------- 一键纳入管理 ----------
-    def _enabled_before_adopt(self, al):
-        """记录一键整理前会生效的顶层/工坊文件名。"""
-        before = set()
-        for key, value in al.entries.items():
-            if str(value).strip() != "1":
-                continue
-            if key.lower().startswith(WS_KEY_PREFIX):
-                before.add(key[len(WS_KEY_PREFIX):])
-            else:
-                before.add(key)
-        # 游戏把 addonlist 中缺失的顶层条目视为启用。
-        for name in self.list_addon_files():
-            if name not in al.entries:
-                before.add(name)
-        # workshop 中的新订阅即使暂未写入 addonlist，也会被游戏加载。
-        for item in self.workshop_items():
-            file_name = item["file"]
-            ws_key = WS_KEY_PREFIX + file_name
-            if ws_key not in al.entries or al.get(ws_key) == "1":
-                before.add(file_name)
-        return before
-
-    def _settle_conflict_selections(self, al, before_enabled):
-        """保证外观冲突组只启用一个，并返回本次被自动禁用的文件名。"""
-        groups = {}
-        for rec in self.store.mods().values():
-            category = rec.get("category")
-            item = rec.get("item")
-            if category in clf.CONFLICT_CATEGORIES and item:
-                groups.setdefault((category, item), []).append(rec)
-
-        disabled = []
-        for candidates in groups.values():
-            if len(candidates) < 2:
-                continue
-            ordered = sorted(candidates, key=mod_name_sort_key)
-            enabled = [r for r in candidates if r.get("enabled")]
-            preferred = [r for r in enabled if r["file"] in before_enabled]
-            winner = (preferred or enabled or ordered)[0]
-            winner_file = winner["file"]
-            for rec in candidates:
-                want = rec["file"] == winner_file
-                was_enabled = bool(rec.get("enabled"))
-                if was_enabled and not want:
-                    disabled.append(rec["file"])
-                rec["enabled"] = want
-                al.set(rec["file"], "1" if want else "0")
-        return disabled
-
     def adopt_all(self, progress=None):
         """递归扫描 addons 目录，把所有 vpk 纳入管理策略。
 
@@ -675,7 +678,6 @@ class Library(object):
         if not self.paths.valid():
             raise LibraryError("游戏目录无效")
         al = AddonList.load(self.paths.addonlist_file)
-        before_enabled = self._enabled_before_adopt(al)
 
         # 1) workshop 子目录 → 迁移（全部订阅项移出并纳管）
         ws_items = [it["file"] for it in self.workshop_items()]
@@ -762,13 +764,12 @@ class Library(object):
             al.set(name, "1")
             stats["adopted"] += 1
 
-        enabled_before_settle = set(r["file"] for r in self.store.mods().values()
-                                    if r.get("enabled"))
-        disabled = self._settle_conflict_selections(al, before_enabled)
-        stats["auto_disabled"] = len(disabled)
-        stats["auto_enabled"] = sum(
-            1 for rec in self.store.mods().values()
-            if rec.get("enabled") and rec["file"] not in enabled_before_settle)
+        # ⚠️ 2026-11-20 起不再做冲突收敛（用户要求自行管理）：
+        # 原来这里调 _settle_conflict_selections，把每个互斥组强制裁到只剩一个启用，
+        # 其余写成 "0"。整理是「把文件纳入管理」，不该顺手改用户的启用选择。
+        # 两个 stats 字段保留（恒为 0），避免外部消费方拿不到 key。
+        stats["auto_disabled"] = 0
+        stats["auto_enabled"] = 0
         al.save(self.paths.addonlist_file)
         self.store.save_library()
         return stats

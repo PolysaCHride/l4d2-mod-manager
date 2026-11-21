@@ -67,6 +67,7 @@
 | `source` | str | `scan`/`adopt`/`migrate`/`import`/`download` | 各写入路径 |
 | `collection` | str | 所属合集 ID（带 `ws_` 前缀） | 下载/导入 |
 | `pinned` | bool | 用户手工改过分类，扫描不再覆盖 | `set_category` |
+| `title_locked` | bool | **标题来自工坊在线补全**，重扫时不覆盖 | `_enrich_from_workshop` |
 | `auto_category` | str | **分类器原本给出的分类**。用户第一次改分类时捕获，之后不再变 | `set_category`（仅首次） |
 | `auto_item` | str | 同上，对应 `item` | `set_category`（仅首次） |
 | `clfv` | int | **分类器版本**，见 §3 —— 改错会让全部模组重算 | 扫描 |
@@ -99,6 +100,29 @@
 **重扫时保留**：`_scan_one` 的 `old` 分支会保住 `auto_*`，
 否则一次扫描就让所有模组丢失「识别结果」。
 
+### 2.1.2 `title_locked`：标题来源标记（2026-11-21 新增）
+
+**为什么需要它**：标题有两个来源，质量差很多：
+
+| 来源 | 质量 | 例子 |
+|---|---|---|
+| `addoninfo.txt`（作者写包里的） | 参差，常带版本号/括号/多语言混排 | `AK-47 Saratoga`、`Pokeball.` |
+| 工坊 API（`_enrich_from_workshop`） | 好，作者上传时填的干净名字 | `CSGO AK47 \| Azur Lane-Saratoga(Glowing)` |
+
+`title_locked = true` 表示这个标题来自工坊 API，**重扫时不许被 addoninfo 覆盖**。
+
+**踩过的坑（真实事故）**：修 `addoninfo` 键名大小写 bug 后 `CLF_VERSION` +1，
+全库重扫让 **136 个标题变化**，其中 11 组变成「多个不同文件同名」
+（`Divine Cybermancy × 4`、`地心引力 × 4`…）—— 用户完全分不清谁是谁。
+根因就是重扫无条件用 addoninfo 覆盖了工坊结果。
+
+**当时的回滚**：`data/library.json` 恢复到重扫前，然后做了一次性迁移
+把 195 条（有 workshop_id 且标题非纯数字）标记为 `title_locked`，再重扫。
+结果：**只 4 条标题变化**（4 个纯数字标题被修好），其余全部保持。
+
+**注意**：`title_locked` 自己也要跨重扫保留（`_scan_one` 的 `old` 分支），
+否则第二次重扫又开始用 addoninfo 的差标题。
+
 ### 2.2 哪些字段是真·权威
 
 `library.json` 整体只是**缓存**。真正的权威是磁盘：
@@ -127,13 +151,14 @@
 
 ```python
 # app/core/classify.py
-CLF_VERSION = 15
+CLF_VERSION = 16
 ```
 
 ### 版本历史
 
 | 版本 | 变更 | 影响 |
 |---:|---|---|
+| 16（2026-11-21） | 标题提取忽略 `addoninfo` 键的大小写；mission 标题优先于 addoninfo（当它更完整时） | 只修好 4 个纯数字标题，其余靠 `title_locked` 保护不动 |
 | 15（2026-11-20） | 新增「前置/框架包」识别；新增「addoninfo 明示 Campaign/Map → 归地图」前置规则 | 全库重扫，200 个模组中 17 个分类变化（见下） |
 | 14 | 之前 | — |
 
@@ -202,28 +227,13 @@ if (old and old.get("mtime") == mtime and old.get("size") == size
 
 `game_dir` 改了会**重建 `Library` 实例**（`api.save_setting` 里置 None 再懒加载）。
 
-### 4.1 `mutex_off_groups`（组级互斥开关，2026-11-20 新增）
+### 4.1 已移除：`mutex_off_groups`
 
-```jsonc
-{
-  "mutex_off_groups": ["角色\u0000Ellis(艾利斯)", "近战\u0000消防斧"]
-}
-```
+2026-11-20 曾加过「组级互斥开关」，存在 `mutex_off_groups` 里。
+**2026-11-21 已整体拆除** —— 用户要求放弃互斥组实现、自行管理冲突。
+详见 `docs/PLAN_REMOVE_MUTEX.md`。
 
-被用户**关掉互斥**的「分类 + 物品」组。元素格式是 `分类 + \x00 + 物品`
-（用 NUL 分隔，避免分类名/物品名里本身含冒号时产生歧义）。
-
-**语义**：默认**空**，也就是所有组都按 L4D2 的游戏机制互斥。
-用户可以在详情页「同组」面板里把某一组关掉，关掉后启用该组模组
-**不再自动停用**同组其它模组。
-
-**关掉互斥不动任何现有启用状态**，只改变「下次启用时要不要顶掉别人」。
-
-**什么时候该关**：
-- 分类器把两个本该共存的模组判成了同组（本版已修一批，但仍可能有漏网）
-- 用户确实想同时启用两个同类替换（明知有冲突，但想自己试）
-
-> 改这个字段不需要重启，但**要保证应用没在运行**，否则内存里的副本会覆盖它。
+如果你在旧的 `settings.json` 里还看到这个键，可以安全删除（程序已不再读它）。
 
 ---
 

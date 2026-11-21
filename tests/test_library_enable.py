@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
-"""导入 / 下载后默认启用，以及同物品互斥组切换到最新加入的 mod。"""
+"""导入 / 下载后默认启用。
+
+⚠️ 2026-11-20 起**不再有互斥**（用户要求自行管理冲突）：
+`enable_new_mods` 只负责把新模组设为启用，**不会**再停用同组的旧模组。
+原来的 `test_conflict_group_switches_to_latest_new_mod` 因此改写为
+`test_same_group_mods_all_stay_enabled` —— 断言的是相反的行为。
+"""
 import os
 import tempfile
 import unittest
@@ -48,7 +54,11 @@ class EnableNewModsTests(unittest.TestCase):
         self.assertEqual(self._addon_value(map_mod["file"]), "1")
         self.assertEqual(self._addon_value(skin["file"]), "1")
 
-    def test_conflict_group_switches_to_latest_new_mod(self):
+    def test_same_group_mods_all_stay_enabled(self):
+        """同组（枪械/AK-47）的多个模组全部保持启用 —— 不再自动停用旧项。
+
+        这是拆除互斥后的核心断言：用户自己决定谁开谁关。
+        """
         old = self._add_mod("old_ak.vpk", "枪械", "AK-47")
         self.library.enable_new_mods([old["file"]])
 
@@ -56,13 +66,15 @@ class EnableNewModsTests(unittest.TestCase):
         latest = self._add_mod("latest_ak.vpk", "枪械", "AK-47")
         disabled = self.library.enable_new_mods([first["file"], latest["file"]])
 
-        self.assertFalse(self._enabled(old["file"]))
-        self.assertFalse(self._enabled(first["file"]))
+        # 三个同组模组全部启用
+        self.assertTrue(self._enabled(old["file"]))
+        self.assertTrue(self._enabled(first["file"]))
         self.assertTrue(self._enabled(latest["file"]))
-        self.assertEqual(sorted(disabled), sorted([old["file"], first["file"]]))
-        self.assertEqual(self._addon_value(old["file"]), "0")
-        self.assertEqual(self._addon_value(first["file"]), "0")
+        self.assertEqual(self._addon_value(old["file"]), "1")
+        self.assertEqual(self._addon_value(first["file"]), "1")
         self.assertEqual(self._addon_value(latest["file"]), "1")
+        # 不再返回任何被自动停用的文件
+        self.assertEqual(disabled, [])
 
     def test_other_items_and_non_conflict_mods_stay_enabled(self):
         ak = self._add_mod("ak.vpk", "枪械", "AK-47")
@@ -75,6 +87,20 @@ class EnableNewModsTests(unittest.TestCase):
         self.assertTrue(self._enabled(awp["file"]))
         self.assertTrue(self._enabled(sound["file"]))
 
+    def test_toggle_does_not_disable_siblings(self):
+        """set_enabled(mutex=False) 不动同组其它模组。"""
+        a = self._add_mod("a_ak.vpk", "枪械", "AK-47")
+        b = self._add_mod("b_ak.vpk", "枪械", "AK-47")
+
+        self.library.enable_new_mods([a["file"], b["file"]])
+        self.assertTrue(self._enabled(a["file"]))
+        self.assertTrue(self._enabled(b["file"]))
+
+        disabled = self.library.set_enabled(b["file"], True, mutex=False)
+        self.assertEqual(disabled, [])
+        self.assertTrue(self._enabled(a["file"]), "启用 b 不该关掉 a")
+
 
 if __name__ == "__main__":
     unittest.main()
+

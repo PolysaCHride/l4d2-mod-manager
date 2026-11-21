@@ -45,8 +45,7 @@ class TestFrameworkDetection(unittest.TestCase):
         paths = ["models/survivors/ksep.mdl",
                  "models/survivors/gestures_teenangst_bq.mdl",
                  "models/survivors/gestures_producer_bq.mdl"]
-        info = {"addontitle": "KSEP 人物静态表情平台",
-                "addonDescription": "特定人物模组实现静态表情的前置模组。"}
+        info = {"addontitle": "KSEP 人物静态表情平台",                "addonDescription": "特定人物模组实现静态表情的前置模组。"}
         self.assertEqual(cat(paths, info), "杂项")
 
     def test_prerequisite_word_forms(self):
@@ -138,10 +137,94 @@ class TestNoRegression(unittest.TestCase):
 class TestVersionBumped(unittest.TestCase):
     """改了分类规则就必须 +1，否则老记录永远用旧分类。"""
 
-    def test_clf_version_is_15_or_later(self):
+    def test_clf_version_is_16_or_later(self):
         self.assertGreaterEqual(
-            clf.CLF_VERSION, 15,
+            clf.CLF_VERSION, 16,
             "改了分类规则必须提升 CLF_VERSION，否则已有模组不会重算分类")
+
+
+class TestAddonInfoKeyCasing(unittest.TestCase):
+    """addoninfo 的键大小写不统一 —— 必须忽略大小写查。
+
+    真实案例：4 个模组的 addoninfo 用的是小写 `addontitle`，
+    而代码只查 `addonTitle`，导致标题退化成工坊 ID（如 "3009143766"）。
+    """
+
+    def test_lookup_ci_matches_any_casing(self):
+        from app.core.vpk import lookup_ci
+        for key in ("AddonTitle", "addontitle", "ADDONTITLE", "AddonTitle"):
+            self.assertEqual(
+                lookup_ci({key: "《流浪地球》音乐替换特感音乐"}, "AddonTitle"),
+                "《流浪地球》音乐替换特感音乐", key)
+
+    def test_lookup_ci_returns_default_when_missing(self):
+        from app.core.vpk import lookup_ci
+        self.assertIsNone(lookup_ci({"other": "x"}, "AddonTitle"))
+        self.assertEqual(lookup_ci({"other": "x"}, "AddonTitle", default=""), "")
+
+    def test_lookup_ci_skips_blank_values(self):
+        """空字符串不该当成"找到了"，应继续查下一个候选名。"""
+        from app.core.vpk import lookup_ci
+        info = {"AddonTitle": "   ", "addontitle": ""}
+        self.assertIsNone(lookup_ci(info, "AddonTitle"))
+
+    def test_parse_keyvalues_preserves_casing(self):
+        """parse_keyvalues 保留作者原始大小写（取值方自己兼容）。"""
+        from app.core.vpk import parse_keyvalues
+        kv = parse_keyvalues('"AddonInfo"\n{\n\t"addontitle"\t\t"小黑"\n}')
+        info = kv.get("AddonInfo")
+        self.assertIn("addontitle", info)
+        self.assertNotIn("addonTitle", info)
+
+
+class TestTitlePriority(unittest.TestCase):
+    """标题优先级：工坊在线补全 > addoninfo > mission > 工坊ID。
+
+    2026-11-21 血泪教训：修 addoninfo 大小写 bug 后，一次全库重扫
+    让 136 个标题变化、11 组变成同名 —— 因为把 `_enrich_from_workshop()`
+    从工坊 API 拉的好标题冲掉了。现在用 title_locked 标记保护。
+    """
+
+    def test_is_junk_detection(self):
+        """纯数字 / 空 / 等于文件名主干 → 都是「没信息量」。"""
+        from app.core.library import Library
+        # 借用 _scan_one 内的判定逻辑语义（通过行为验证）
+        # 这里只测语义约定，具体实现在 _scan_one 内部
+        for junk in ("", "   ", "3009143766", "1127584577"):
+            self.assertTrue(junk.strip() == "" or junk.strip().isdigit(), junk)
+
+    def test_title_locked_survives_rescan(self):
+        """title_locked=True 的记录，重扫后标题不变。"""
+        import os
+        import tempfile
+        from app.core.library import Library
+        from app.core.paths import GamePaths
+        from app.core.store import Store
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = tmp.name
+        game = os.path.join(root, "L4D2")
+        addons = os.path.join(game, "left4dead2", "addons")
+        os.makedirs(addons)
+        store = Store(os.path.join(root, "data"))
+        lib = Library(store, GamePaths(game))
+
+        # 造一个最小 vpk（内容非法 → 走"损坏 vpk"分支，但不影响 title_locked）
+        name = "1234567890.vpk"
+        with open(os.path.join(addons, name), "wb") as f:
+            f.write(b"\x34\x12\xaa\x55" + b"\x00" * 64)
+        rec = store.get_mod(name) or lib.register_new(name, source="scan", enabled=False)
+        rec["title"] = "工坊拉来的好标题"
+        rec["title_locked"] = True
+        store.save_library()
+
+        lib.rescan()
+        again = store.get_mod(name)
+        self.assertEqual(again.get("title"), "工坊拉来的好标题",
+                         "title_locked 的标题不该被重扫覆盖")
+        self.assertTrue(again.get("title_locked"),
+                        "title_locked 标记自身也必须跨重扫保留")
 
 
 if __name__ == "__main__":

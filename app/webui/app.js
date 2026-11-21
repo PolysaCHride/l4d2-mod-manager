@@ -96,10 +96,6 @@
   }
 
 
-  // 互斥类别：与 app/core/classify.py 的 CONFLICT_CATEGORIES 保持一致。
-  // 只有这些类别下的同 item 模组才互斥，地图/脚本等不受限制。
-  const MUTEX_CATEGORIES = new Set(['角色', '特感', '枪械', '近战', '医疗品', '投掷']);
-
   // 全部可选分类：与 app/core/classify.py 的 CATEGORIES 一致（顺序也一致）。
   // tests/test_webui_contract.py 有断言钉住这两份列表的集合相等。
   const CATEGORY_OPTIONS = [
@@ -117,13 +113,10 @@
   if (typeof document === 'undefined') {
     module.exports = {
       adapt,
-      MUTEX_CATEGORIES,
       CATEGORY_OPTIONS,
       RAIL_DEFS,
       RAILS,
-      countConflictsOf,
       writeBlockedOf,
-      isSameGroup,
     };
     return;
   }
@@ -343,28 +336,6 @@
   }
 
   const selected = () => MODS.find((m) => m.id === state.selectedId) || null;
-  /**
-   * 同组判定的纯函数版（便于 Node 契约测试）。
-   * 返回 true 表示 a 和 b 属于同一互斥组。
-   */
-  function isSameGroup(a, b) {
-    if (!a || !b) return false;
-    if (a.id === b.id) return false;
-    if (a.cat !== b.cat || a.item !== b.item) return false;
-    // 两边都有合集归属且不同 → 是两个不同合集里的同名模组，不算同组
-    if (a.coll && b.coll && a.coll !== b.coll) return false;
-    return true;
-  }
-
-  /**
-   * 同组判定：cat + item 相同才算同组。
-   *
-   * 但要多算一步 —— 如果两边的 collection 都非空且不相等，
-   * 说明它们是**两个不同合集里恰好同名**的模组，不是同一组。
-   * 不排除的话，两张不相干的地图会莫名其妙互相顶掉。
-   * （实测当前库无此碰撞，但这是结构性风险，成本又极低。）
-   */
-  const sameGroup = (m) => MODS.filter((x) => isSameGroup(x, m));
 
   // ---------------------------------------------------------------- render: rail
   function renderRail() {
@@ -437,14 +408,9 @@
       }).join('') + '</div>';
     }
 
-    // ---------------------------------------------------------- 冲突提示
-    const conflictCount = countConflicts();
-    const conflictLine = conflictCount
-      ? `<div class="conflict-line">${icon('alert')}<span><b>${conflictCount}</b> 组待处理</span>
-         <button type="button" data-conflict="1">查看</button></div>`
-      : '';
-
-    $('#filters').innerHTML = head + body + conflictLine;
+    // 注：2026-11-20 起不再显示「N 组待处理」冲突提示 ——
+    // 互斥机制已拆除，用户自行管理冲突（用户明确要求「不提示、不管互斥」）。
+    $('#filters').innerHTML = head + body;
 
     // ---------------------------------------------------------- 事件
     $$('[data-mode]').forEach((b) => b.addEventListener('click', () => {
@@ -471,9 +437,6 @@
       }
       renderFilters(); renderHeader(); renderGrid(); renderInspector();
     }));
-
-    const c = $('[data-conflict]');
-    if (c) c.addEventListener('click', showConflictDialog);
   }
 
   /** 筛选列表排序：全部第一、未指定第二、其余按数量降序。 */
@@ -521,22 +484,6 @@
           <span class="count">${count || ''}</span>
           ${hasOn ? '<span class="active-mark"></span>' : ''}</button>`;
     }).join('');
-  }
-
-  /** 数一数有几组真冲突（只算互斥类别）。
-   *  纯函数版：接受 mod 列表，便于 Node 侧直接测。 */
-  function countConflictsOf(list) {
-    const groups = {};
-    (list || []).forEach((m) => {
-      if (!m.enabled || !MUTEX_CATEGORIES.has(m.cat) || !m.item) return;
-      const k = m.cat + '/' + m.item;
-      groups[k] = (groups[k] || 0) + 1;
-    });
-    return Object.values(groups).filter((n) => n > 1).length;
-  }
-
-  function countConflicts() {
-    return countConflictsOf(MODS);
   }
 
   // ---------------------------------------------------------------- render: header
@@ -644,7 +591,6 @@
       $('#inspector').innerHTML = '<div class="empty">选择左侧任意模组查看详情。</div>';
       return;
     }
-    const group = sameGroup(m);
     const shown = m.alias || m.name;
 
     // 分类行：用户手工改过分类时（autoCat !== null），
@@ -669,11 +615,6 @@
       ...(m.ws ? [['工坊', m.ws, '']] : []),
     ];
 
-    const groupRows = [
-      `<div class="group-mini active"><img src="${esc(m.img)}" alt=""><span>${esc(shown)}</span>${icon('check')}</div>`,
-      ...group.slice(0, 3).map((x) => `<div class="group-mini" data-pick="${x.id}"><img src="${esc(x.img)}" alt=""><span>${esc(x.alias || x.name)}</span></div>`),
-    ].join('');
-
     $('#inspector').innerHTML = `
       <div class="inspector-head">
         <div class="title-block">
@@ -697,22 +638,6 @@
           + `<span class="v">${isRaw ? html : esc(v)}</span></div>`).join('')}
       </div>
 
-      ${group.length ? `<div class="group-panel">
-        <div class="group-head"><span>同组</span><span class="group-count">${group.filter((x) => x.enabled).length + (m.enabled ? 1 : 0)} / ${group.length + 1}</span></div>
-        ${m.mutexApplicable ? `<div class="group-mutex">
-          <div class="group-mutex-copy">
-            <b>同组互斥</b>
-            <small>${m.groupMutex
-              ? '启用一个会停用同组其它项（游戏机制）'
-              : '已关闭 · 同组多项可同时启用'}</small>
-          </div>
-          <button class="switch sm ${m.groupMutex ? 'on' : ''}" type="button"
-            id="insGroupMutex" role="switch"
-            aria-checked="${m.groupMutex}" aria-label="同组互斥开关"></button>
-        </div>` : ''}
-        ${groupRows}
-      </div>` : ''}
-
       <div class="inspector-actions">
         <button class="icon-action" type="button" id="insAlias" title="设置别名" aria-label="设置别名">${icon('tag')}</button>
         <button class="icon-action" type="button" id="insFolder" title="打开文件夹" aria-label="打开文件夹">${icon('folder')}</button>
@@ -729,27 +654,6 @@
       </div>`;
 
     $('#insClose').addEventListener('click', () => { state.selectedId = null; renderGrid(); renderInspector(); });
-
-    // 「同组互斥」组级开关：按 (分类, 物品) 控制该组是否自动停用同组其它项。
-    // 关掉后，启用一个不会顶掉同组的 —— 由用户自己负责冲突。
-    const groupMutexBtn = $('#insGroupMutex');
-    if (groupMutexBtn) {
-      groupMutexBtn.addEventListener('click', async () => {
-        const next = !m.groupMutex;
-        const res = await window.bridge.set_group_mutex(m.cat, m.item, next);
-        if (!res || !res.ok) {
-          await infoDialog({ title: '无法切换互斥', tone: 'danger',
-                             text: (res && res.error) || '保存失败' });
-          return;
-        }
-        // 这一组里所有模组的开关状态都要跟着变
-        MODS.forEach((x) => {
-          if (x.cat === m.cat && x.item === m.item) x.groupMutex = next;
-        });
-        renderInspector(); renderFilters();
-        toast(next ? '已开启同组互斥' : '已关闭同组互斥 · 可同时启用');
-      });
-    }
 
     $('#insSwitch').addEventListener('click', () => toggleMod(m.id));
 
@@ -875,32 +779,6 @@
       }
     }));
 
-    $$('[data-pick]').forEach((b) => b.addEventListener('click', async () => {
-      const target = b.dataset.pick;
-      const targetMod = MODS.find((x) => x.id === target);
-      if (!targetMod) return;
-
-      // 与 Mod Grid 双击行为一致：启用同组另一项时先确认互斥
-      if (!targetMod.enabled && MUTEX_CATEGORIES.has(targetMod.cat)) {
-        const siblings = sameGroup(targetMod).filter((x) => x.enabled);
-        if (siblings.length) {
-          const ok = await confirmDialog({
-            title: '切换同组外观',
-            tone: 'question',
-            text: `启用后，同组的 ${siblings.length} 个模组会被自动停用。`,
-            rows: siblings.map((x) => ({
-              name: x.alias || x.name, tag: '将停用', tone: 'warn',
-            })),
-            confirm: '启用',
-          });
-          if (!ok) return;
-          await window.bridge.toggle_mod(target, true);
-        }
-      }
-      state.selectedId = target;
-      renderGrid(); renderInspector(); renderFilters();
-    }));
-
     $('#insDelete').addEventListener('click', async () => {
       const ok = await confirmDialog({
         title: '删除模组',
@@ -951,7 +829,6 @@
       // 数字一旦漏进 ws，`m.ws ? ...` 判定仍成立，但拼到 steam:// 链接里
       // 会得到 "123.0" 之类的值，且 === 比较全部失效。
       ws: apiMod.workshop_id == null ? '' : String(apiMod.workshop_id),
-      mutex: !!apiMod.mutex,
       // 用户手工改过分类：category 是用户值，autoCat/autoItem 是管理器识别的值。
       // autoCat 为 null 表示从没改过 —— 前端据此决定要不要置灰展示。
       pinned: !!apiMod.pinned,
@@ -959,11 +836,8 @@
       autoItem: apiMod.autoItem == null ? null : (apiMod.autoItem || ''),
       // 所属合集 ID（"ws_<数字>"），空串表示无归属
       coll: apiMod.collection || '',
-      // 组级互斥：mutexApplicable = 这类模组会参与互斥；
-      // groupMutex = 它所在的那个「分类+物品」组**当前**是否真的在互斥。
-      // 只有 mutexApplicable 为真时才需要在详情里显示开关。
-      mutexApplicable: !!apiMod.mutexApplicable,
-      groupMutex: !!apiMod.groupMutex,
+      // 注：2026-11-20 起不再有 mutex / mutexApplicable / groupMutex ——
+      // 互斥机制已整体拆除，用户自行管理冲突。
     };
   }
 
@@ -1086,22 +960,8 @@
     }
 
     // ---- 启用 ----
-    // 组互斥关闭时（用户在「同组」面板里关掉了这一组），
-    // 启用不会顶掉同组其它项，所以也不该再弹「会被自动停用」的确认框。
-    const siblings = m.mutexApplicable === false
-      ? []
-      : (m.groupMutex === false ? [] : sameGroup(m).filter((x) => x.enabled));
-    if (siblings.length) {
-      const ok = await confirmDialog({
-        title: '切换同组外观',
-        tone: 'question',
-        text: `启用后，同组的 ${siblings.length} 个模组会被自动停用。`,
-        rows: siblings.map((x) => ({ name: x.alias || x.name, tag: '将停用', tone: 'warn' })),
-        confirm: '启用',
-      });
-      if (!ok) { paintCards(); renderInspector(); return; }
-    }
-
+    // 2026-11-20 起不做互斥：启用就是启用，不弹「会停用同组 X 个」的确认框，
+    // 也不会连带停用任何模组。冲突由用户自行管理。
     const res = await window.bridge.toggle_mod(m.file, true);
     if (!res || !res.ok) {
       paintCards(); renderInspector();
@@ -1110,61 +970,8 @@
       return;
     }
     m.enabled = true;
-    // 后端会连带停用同组，用返回值校正本地状态
-    (res.disabled_siblings || []).forEach((f) => {
-      const sib = MODS.find((x) => x.file === f);
-      if (sib) sib.enabled = false;
-    });
     repaintAfterToggle();
     toast('已启用');
-  }
-
-  async function showConflictDialog() {
-    const groups = {};
-    MODS.forEach((m) => {
-      if (!m.enabled) return;
-      // 非互斥类别不参与冲突判定
-      if (!MUTEX_CATEGORIES.has(m.cat)) return;
-      if (!m.item) return;
-      const k = m.cat + '/' + m.item;
-      (groups[k] = groups[k] || []).push(m);
-    });
-    const conflicts = Object.entries(groups).filter(([, list]) => list.length > 1);
-    if (!conflicts.length) {
-      await infoDialog({ title: '没有待处理项', text: '当前每个外观组都只有一个启用项。' });
-      return;
-    }
-    const ok = await confirmDialog({
-      title: '处理同组冲突',
-      tone: 'warning',
-      text: '每组保留最新加入的一项，其余停用。',
-      rows: conflicts.flatMap(([k, list]) => {
-        const keep = list.slice().sort((a, b) => a.added - b.added)[0];
-        return list.map((m) => ({
-          name: `${k} · ${m.alias || m.name}`,
-          tag: m === keep ? '保留' : '将停用',
-          tone: m === keep ? 'ok' : 'warn',
-        }));
-      }),
-      confirm: '自动处理',
-    });
-    if (!ok) return;
-    // 保留最新启用的一项（added 是「几天前」，数值越小越新）
-    const toDisable = [];
-    conflicts.forEach(([, list]) => {
-      const keep = list.slice().sort((a, b) => a.added - b.added)[0];
-      list.filter((x) => x !== keep).forEach((x) => toDisable.push(x));
-    });
-
-    let done = 0;
-    for (const mod of toDisable) {
-      const res = await window.bridge.toggle_mod(mod.file, false);
-      if (res && res.ok) { mod.enabled = false; done += 1; }
-    }
-
-    renderGrid(); renderInspector(); renderFilters();
-    toast(`已处理 ${conflicts.length} 组` + (done < toDisable.length
-      ? `（${toDisable.length - done} 个失败）` : ''));
   }
 
   // ---------------------------------------------------------------- status bar
