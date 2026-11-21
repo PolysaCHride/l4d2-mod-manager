@@ -347,6 +347,60 @@ check('最后一个模组移走后子分类自动消失', () => {
   eq(after.indexOf('Zeta'), -1, '没有模组引用后不该再出现');
 });
 
+const CATALOG = {
+  '特感': ['Boomer', 'Charger', 'Hunter', 'Jockey', 'Smoker', 'Spitter',
+           'Tank', 'Witch', '普通感染者'],
+  '医疗品': ['急救包', '急救包(医疗包)', '止痛药'],
+};
+
+check('没有模组的子分类也要出现（catalog 兜底）', () => {
+  // 库里只有 Tank，但目录里 9 个都要列出来
+  const list = app.subItemsOf('特感', [{ cat: '特感', item: 'Tank', coll: '' }],
+                              {}, CATALOG);
+  eq(list.length, 9);
+  ok(list.indexOf('Hunter') >= 0, 'Hunter 没出现');
+  ok(list.indexOf('普通感染者') >= 0, '普通感染者没出现');
+});
+
+check('catalog 与库里的值合并、不重复', () => {
+  const list = app.subItemsOf('特感',
+    [{ cat: '特感', item: 'Tank', coll: '' }, { cat: '特感', item: 'Tank', coll: '' }],
+    {}, CATALOG);
+  eq(list.filter((x) => x === 'Tank').length, 1);
+});
+
+check('同一件东西的两种叫法合成一条（库里在用的写法优先）', () => {
+  // 库里写「急救包」，目录里还有「急救包(医疗包)」
+  const list = app.subItemsOf('医疗品', [{ cat: '医疗品', item: '急救包', coll: '' }],
+                              {}, CATALOG);
+  eq(list.indexOf('急救包'), 0, list.join(','));
+  eq(list.indexOf('急救包(医疗包)'), -1, '重复写法没合并：' + list.join(','));
+  ok(list.indexOf('止痛药') >= 0, '目录里的其它项掉了');
+});
+
+check('库里两个同基本名的值都要保住（地图多部件）', () => {
+  // Divine Cybermancy （Part1-2）/（Part2-2）括号前相同，但确实是两张图。
+  // 合并只针对 catalog，不许动库里的值。
+  const list = app.subItemsOf('地图', [
+    { cat: '地图', item: 'Divine Cybermancy （Part1-2）', coll: '' },
+    { cat: '地图', item: 'Divine Cybermancy （Part2-2）', coll: '' },
+  ], {}, {});
+  eq(list.length, 2);
+});
+
+check('两者都不在库里时保留短写法', () => {
+  const list = app.subItemsOf('医疗品', [], {},
+                              { '医疗品': ['急救包(医疗包)', '止痛药'] });
+  eq(list, ['急救包(医疗包)', '止痛药']);
+});
+
+check('目录不影响排序（仍然按名称）', () => {
+  const list = app.subItemsOf('特感', [], {}, CATALOG);
+  // 中文在前（用户定过的规则），所以「普通感染者」排第一
+  eq(list, ['普通感染者', 'Boomer', 'Charger', 'Hunter', 'Jockey', 'Smoker',
+            'Spitter', 'Tank', 'Witch']);
+});
+
 check('没有子分类时返回空数组', () => {
   eq(app.subItemsOf('枪械', SUBS_MODS, COLLS), []);
 });

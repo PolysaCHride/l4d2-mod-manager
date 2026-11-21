@@ -370,6 +370,15 @@ for cid, info in store.collections().items():
   不需要任何清理逻辑。
 - 管理器自带的子分类不会因为「空了」被删 —— 没有任何代码会去改别的模组的 `item`。
 
+**「自带的」子分类从哪来**：`bootstrap` 的 `catalog` 字段，由
+`api._category_catalog()` 从 core 的词表现算 —— `classify_data.WHITELIST_STEMS`
+（每条规则的目标）、`PREFIX_RULES` / `REGEX_RULES`，以及 `classify.py` 里的人物/
+武器/近战/医疗名单。UI 只负责把它和库里的值并起来渲染。
+
+所以「特感」即使只有 2 个模组，树上也会列出 Boomer/Charger/Hunter/Jockey/
+Smoker/Spitter/Tank/Witch/普通感染者/语音 全部 10 项（空项不显示数量，
+点进去是空列表）。分类器以后加了新武器，这里自动出现，不需要改前端。
+
 `app/core/` 未参与这套统一（冻结层）：全部落在 `app/shell/api.py` 与前端显示层。
 
 ## 八、真实数据一览（2026-11-20 采样）

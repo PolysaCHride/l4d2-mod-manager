@@ -317,6 +317,43 @@ window.__coll = null;
       ok(!out.pinnedAfterCleanup, '收尾没把 pinned 清掉');
     }
 
+    // ── 特感：没有模组的子分类也要列出来（catalog 补全）──
+    // 真实库里特感只有 Tank / 普通感染者 两个有模组，但 9 个都要在树上。
+    const railSpecial = document.querySelector('[data-rail="special"]');
+    if (railSpecial) {
+      railSpecial.click();
+      await sleep(900);
+      const rows = [...document.querySelectorAll('.filter-row')].map((r) => ({
+        name: (r.querySelector('.item-name') || {}).textContent || '',
+        count: ((r.querySelector('.count') || {}).textContent || '').trim(),
+      }));
+      out.specialRows = rows.map((r) => r.name);
+      const want = ['Boomer', 'Charger', 'Hunter', 'Jockey', 'Smoker', 'Spitter',
+                    'Tank', 'Witch', '普通感染者'];
+      const missing = want.filter((n) => out.specialRows.indexOf(n) < 0);
+      ok(missing.length === 0, '特感少了子分类：' + missing.join(','));
+      ok(out.specialRows.indexOf('全部特感') === 0, '第一行应该是「全部特感」');
+
+      const empty = rows.find((r) => r.name === 'Hunter');
+      out.emptyCount = empty ? empty.count : null;
+      ok(empty && empty.count === '', '没模组的子分类不该显示数量，实际 ' + out.emptyCount);
+
+      // 点一个空子分类：应该能选中、网格为空，但不能报错
+      const hunter = [...document.querySelectorAll('.filter-row')]
+        .find((r) => ((r.querySelector('.item-name') || {}).textContent || '') === 'Hunter');
+      if (hunter) hunter.click();
+      await sleep(700);
+      out.emptyCards = document.querySelectorAll('.mod-card').length;
+      ok(out.emptyCards === 0, '空子分类里不该有卡片：' + out.emptyCards);
+      ok(!!(document.querySelector('.grid .empty') || document.querySelector('.empty')),
+         '空子分类没有空状态提示');
+      const allBtn = document.querySelector('.filter-row[data-item="全部特感"]');
+      if (allBtn) allBtn.click();
+      await sleep(600);
+      out.specialCards = document.querySelectorAll('.mod-card').length;
+      ok(out.specialCards > 0, '回到「全部特感」后没有卡片');
+    }
+
     // 没有合集的模组**也要**有「更多」块，正文写「不属于任何合集」
     const noColl = b.mods.find((m) => !m.collection);
     if (noColl) {
@@ -393,6 +430,10 @@ def run(win):
           % (out.get("hasSubRow"), out.get("subAfterEdit"), out.get("itemAfterRevert"),
              out.get("itemAfterClear"), out.get("subAfterClear"),
              not out.get("pinnedAfterCleanup")), flush=True)
+    print("[coll] 特感（目录补全）：%d 个子分类 %s；空项 Hunter 数量=%r 卡片=%s"
+          % (len(out.get("specialRows") or []),
+             "、".join(out.get("specialRows") or []),
+             out.get("emptyCount"), out.get("emptyCards")), flush=True)
     print("[coll] 选择器：现有 %s 项 可滚动=%s 已排序=%s 不细分行=%s；树上按名排序=%s；"
           "新建项自动清除=%s；自带项保留=%s；⋯ 已隐藏=%s"
           % (out.get("subOptions"), out.get("subScrollable"), out.get("subSorted"),

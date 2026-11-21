@@ -57,9 +57,19 @@
     if (m) m.collection = 'ws_900001';
   });
 
+  // 浏览器演示模式也要有「全部可能子分类」，否则 demo 里特感只剩一个
+  const MOCK_CATALOG = {
+    '角色': ['Bill(比尔)', 'Coach(教练)', 'Ellis(艾利斯)', 'Francis(弗朗西斯)',
+             'Louis(路易斯)', 'Nick(尼克)', 'Rochelle(罗谢尔)', 'Zoey(佐伊)'],
+    '特感': ['Boomer', 'Charger', 'Hunter', 'Jockey', 'Smoker', 'Spitter',
+             'Tank', 'Witch', '普通感染者'],
+    '枪械': ['AK-47(AK)', 'AWP(大狙)', 'M16A2(M4)', 'M60(机枪)', 'MP5', 'SG552'],
+  };
+
   const MOCK = {
     mods: MOCK_MODS.map((m) => Object.assign({}, m)),
     collections: MOCK_COLL,
+    catalog: MOCK_CATALOG,
     settings: { game_dir: 'E:\\SteamLibrary\\steamapps\\common\\Left 4 Dead 2',
                 proxy: '', archiver_path: '', palette: 'blacksite', motion: true },
     paths: { addons: 'E:\\SteamLibrary\\steamapps\\common\\Left 4 Dead 2\\left4dead2\\addons',
@@ -127,6 +137,7 @@
       settings: Object.assign({}, MOCK.settings),
       stats: { total: mods.length, enabled: mods.filter((m) => m.enabled).length },
       collections: Object.assign({}, MOCK.collections),
+      catalog: Object.assign({}, MOCK.catalog),
       game: { running: false },
       paths: Object.assign({}, MOCK.paths),
       version: MOCK.version,

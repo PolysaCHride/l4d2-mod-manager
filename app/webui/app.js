@@ -60,7 +60,7 @@
   /** 取某个二级分类下的物品名（按数量降序，带「全部X」置顶）。 */
   function itemsOfCategory(catName, pool) {
     return ['全部' + catName].concat(
-      subItemsOf(catName, pool, state.collections));
+      subItemsOf(catName, pool, state.collections, state.catalog));
   }
 
 
@@ -116,6 +116,9 @@
     // 合集表 {cid: {name, workshop_id, files}}，bootstrap 的 collections 填入。
     // 纯展示用：合集不参与启用/停用判定（用户裁定：合集 = 展示分组）。
     collections: {},
+    // 分类 → 该分类下**全部可能的子分类**（后端从 core 词表算出）。
+    // 有它才能把「目前没有模组的子分类」也画出来（特感只有 2 个时像坏了）。
+    catalog: {},
     // 详情下方「更多」折叠块是否展开。跨重渲染保留，
     // 否则拨一下开关就会把它收回去。
     moreOpen: false,
@@ -507,8 +510,10 @@
       });
     } else {
       // 角色 / 特感 / 地图：单层列表，物品直接摊平
+      // 单分类 rail（角色/特感/地图）按分类取目录；「全部」rail 不铺全量目录
+      const onlyCat = def.cats && def.cats.length === 1 ? def.cats[0] : null;
       const items = ['全部' + def.title].concat(
-        subItemsOf(null, all, state.collections));
+        subItemsOf(onlyCat, all, state.collections, state.catalog));
       const unspecified = all.filter((m) => !displayItem(m, state.collections));
       if (unspecified.length) items.push('未指定物品');
       groups = [{ key: def.title, items, flat: true }];
@@ -737,7 +742,7 @@
     if (picked === null) return;
 
     // 该分类下已有的子分类（按名称排序）—— 选择器里可滚动挑选
-    const existing = subItemsOf(picked, MODS, state.collections);
+    const existing = subItemsOf(picked, MODS, state.collections, state.catalog);
 
     const item = await subItemDialog({
       // 标题就是一级分类名 —— 不用再写「你正在给 XX 选子分类」这种句子
@@ -1141,22 +1146,41 @@
     return coll ? (coll.name || '').trim() : '';
   }
 
-  /** 某个一级分类下的子分类列表（**按名称排序**、去重）。
+  /** 分类 → 子分类列表（**按名称排序**、去重）。
 
-      这是「子分类从哪来」的唯一实现：树、子分类选择器都走它。
-      子分类不落库 —— 它是从模组记录的 item（+合集名回落）现算出来的，
-      所以「用户新建的子分类」在最后一个模组被移走时会自动消失，
-      而管理器自带的（分类器给的 item）也不会被谁偷偷清掉：没人有权限
-      去改别的模组的 item。
+      两个来源合并：
+      1. 库里出现过（`displayItem`：item 或合集名回落）—— 用户新建的就在
+         这里，一个模组都没有了它就会消失
+      2. 后端 catalog（来自 core 词表）—— 即使**一个模组都没有**也列出来，
+         否则「特感」里只有 Tank 时用户会以为分类坏了
+
+      合并规则：库里的写法一律保留；catalog 里的某项如果和已采用的某个名字
+      「括号前的基本名」相同（`急救包` vs `急救包(医疗包)`），跳过 —— 同一件
+      东西只留一条。**注意只对 catalog 做这个合并**：地图的
+      `Divine Cybermancy （Part1-2）/（Part2-2）` 基本名相同但确实是两张图，
+      库里的值不能被合并掉。
   */
-  function subItemsOf(catName, mods, colls) {
-    const seen = [];
+  function subItemsOf(catName, mods, colls, catalog) {
+    const out = [];
     (mods || []).forEach((m) => {
       if (catName && m.cat !== catName) return;
       const it = displayItem(m, colls);
-      if (it && seen.indexOf(it) < 0) seen.push(it);
+      if (it && out.indexOf(it) < 0) out.push(it);
     });
-    return seen.sort((a, b) => a.localeCompare(b, 'zh'));
+    const baseOf = (name) => name.split(/[(（]/)[0].trim().toLowerCase();
+    const taken = new Map();
+    out.forEach((n) => taken.set(baseOf(n), n));
+    // 同一基本名有多种写法时，短的先占位（「急救包」优先于「急救包(医疗包)」）
+    ((catalog || {})[catName] || [])
+      .filter((x) => out.indexOf(x) < 0)
+      .sort((a, b) => a.length - b.length)
+      .forEach((name) => {
+        const base = baseOf(name);
+        if (taken.has(base)) return;
+        taken.set(base, name);
+        out.push(name);
+      });
+    return out.sort((a, b) => a.localeCompare(b, 'zh'));
   }
 
   function collectionTag(m, colls) {
@@ -1186,6 +1210,7 @@
     state.settings = res.settings || state.settings;
     state.version = res.version || state.version;
     state.collections = res.collections || {};
+    state.catalog = res.catalog || {};
     state.gameRunning = !!(res.game && res.game.running);
     // 后端在 is_l4d2_running() 抛异常时给 unknown=true。
     // 检测失败 ≠ 没在运行 —— 这时必须按「不能写」处理，否则游戏运行中
@@ -1243,6 +1268,7 @@
       MODS = (res.mods || []).map(adapt);
       // 合集归属会随下载/删除变化，一并刷新，否则「更多 → 合集」会显示旧成员
       state.collections = res.collections || state.collections;
+      state.catalog = res.catalog || state.catalog;
       return true;
     }
     return false;

@@ -129,10 +129,10 @@ python -m venv .venv
 ### 3.3 验证
 
 ```powershell
-# 业务逻辑单测 + 前后端契约测试（82 个，用隔离临时目录，不碰真实游戏目录）
+# 业务逻辑单测 + 前后端契约测试（85 个，用隔离临时目录，不碰真实游戏目录）
 .\.venv\Scripts\python -X utf8 -m unittest discover -s tests -v
 
-# 前端契约测试单独跑（45 项，Node 直跑，不需要 Python）
+# 前端契约测试单独跑（52 项，Node 直跑，不需要 Python）
 node tests\adapt_contract.js
 
 # 桥接层自测（不需要窗口，用假 window 验证事件推送）
@@ -938,6 +938,24 @@ core 是冻结层，所以在 `app/shell/api.py` 加了一条快路径
 代价是整个 bootstrap 每次启动多花 3 秒。凡是写在文档里的"平台限制"，
 最好附上复现命令；这次复用 22 张跨盘图的探针一测就推翻了。
 
+### 8.13 第十二轮（2026-11-21）：子分类补全（空的也显示）
+
+用户反馈：特感少了子分类。真实库里特感只有 Tank / 普通感染者两个有模组，
+树上就只剩这两项，看起来像分类坏了。
+
+| 项 | 结果 |
+|---|---|
+| 目录来源 | `api._category_catalog()` 从 core 词表现算（`WHITELIST_STEMS`、`PREFIX_RULES`、`REGEX_RULES`、人物/武器/近战/医疗名单），**不手抄** |
+| 覆盖 | 角色 9 / 特感 10 / 枪械 23 / 近战 23 / 医疗品 6 / 投掷 3 / 载具 19 / 杂项 17（含「语音」这类特殊桶） |
+| 合并 | 库里出现过的值一律保留；catalog 项与已采用的「括号前基本名」相同则跳过（`急救包` vs `急救包(医疗包)`）。**只对 catalog 合并**——地图的 `Divine Cybermancy （Part1-2）/（Part2-2）` 基本名相同但确实是两张图 |
+| 空项 | 不显示数量、可点击（进去是空列表 + 空状态） |
+| picker | 选择器也列全目录，所以可以把模组直接分到「目前还空着」的子分类 |
+| 消失规则不变 | 用户新建的（只存在于数据里）最后一个模组移走后自动消失；catalog 项永远在 |
+
+**为什么从 core 读而不是写死一张表**：那些名字就是分类器会写进 `item` 的值。
+写死迟早漂（新武器忘加、同一把枪两种叫法），而且没人会记得同步两处。
+core 是冻结层，但**读它的常量**不算改它。
+
 ### 8.5 第四轮（分类器修复 + 组级互斥开关）
 
 | 项 | 结果 |
@@ -1070,8 +1088,8 @@ core 是冻结层，所以在 `app/shell/api.py` 加了一条快路径
 
 - [ ] 读本文档第 0、5、6 节
 - [ ] `pip install -r requirements.txt`，跑起 `main_web.py`
-- [ ] 跑 `python -m unittest discover -s tests -v`，确认 **82 个全绿**
-- [ ] 跑 `node tests/adapt_contract.js`，确认 **45 项**全过
+- [ ] 跑 `python -m unittest discover -s tests -v`，确认 **85 个全绿**
+- [ ] 跑 `node tests/adapt_contract.js`，确认 **52 项**全过
 - [ ] 跑 `python -X utf8 docs/redesign/proto/e2e_check.py`，确认 `mode: live`
 - [ ] 打开一次 DevTools（`L4D2_DEBUG=1`），看有没有 console 错误
 - [ ] 双击一个模组，**去 `addonlist.txt` 确认真的写了 `0`/`1`**
@@ -1124,7 +1142,7 @@ core 是冻结层，所以在 `app/shell/api.py` 加了一条快路径
 | 项 | 结果 |
 |---|---|
 | **发布流程** | 只有新界面一条路；7-Zip 三重校验；缺组件**直接失败**；冒烟默认开启（`-NoSmoke` 关） |
-| **契约保护** | Python 82 项 + Node 46 项，字段契约、标题兜底、合集/子分类三层都有断言 |
+| **契约保护** | Python 85 项 + Node 52 项，字段契约、标题兜底、合集/子分类三层都有断言 |
 | **实机可验** | `e2e_check.py` / `coll_check.py` / `toggle_check.py` 都跑真实库，不需要人眼看 |
 | **界面收口** | 卡片 `合集名 (x/5)`、详情「更多」常驻、标题三层兜底、自定义标题入口可见 |
 | **数据卫生** | `clean_cache` 清理 previews 孤儿（实测 31.3MB），重启不自动扫 |

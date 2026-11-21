@@ -299,8 +299,39 @@ class TestBootstrapShape(unittest.TestCase):
     def test_bootstrap_keys(self):
         r = Api().bootstrap()
         self.assertTrue(r.get("ok"))
-        for k in ("mods", "settings", "stats", "game", "paths", "version", "collections"):
+        for k in ("mods", "settings", "stats", "game", "paths", "version",
+                  "collections", "catalog"):
             self.assertIn(k, r, "bootstrap 缺字段：%s" % k)
+
+    def test_bootstrap_catalog_completes_special_infected(self):
+        """子分类目录必须补全 —— 特感只有 2 个模组，但 10 个条目都要在。"""
+        cat = Api().bootstrap()["catalog"]
+        specials = cat.get("特感", [])
+        for name in ("Boomer", "Charger", "Hunter", "Jockey", "Smoker",
+                     "Spitter", "Tank", "Witch", "普通感染者"):
+            self.assertIn(name, specials, "特感缺子分类：%s" % name)
+
+    def test_bootstrap_catalog_covers_entity_categories(self):
+        """有人物/武器/物品名单的分类都要有目录，且名字必须来自 core 词表。"""
+        from app.core import classify as C
+
+        cat = Api().bootstrap()["catalog"]
+        for name in ("角色", "特感", "枪械", "近战", "医疗品", "投掷"):
+            self.assertTrue(cat.get(name), "%s 没有子分类目录" % name)
+
+        self.assertTrue(set(C.SURVIVOR_NAMES.values()) <= set(cat["角色"]))
+        self.assertTrue(set(C.SPECIAL_NAMES.values()) <= set(cat["特感"]))
+        self.assertTrue(set(C.WEAPON_SEG_NAMES.values()) <= set(cat["枪械"]))
+        self.assertTrue(set(C.MELEE_NAMES.values()) <= set(cat["近战"]))
+
+    def test_bootstrap_catalog_has_no_empty_names(self):
+        """目录里不许有空串/重复 —— 前端直接拿它渲染。"""
+        cat = Api().bootstrap()["catalog"]
+        for name, items in cat.items():
+            self.assertTrue(items, "%s 的目录是空的" % name)
+            self.assertEqual(len(items), len(set(items)), "%s 有重复项" % name)
+            for it in items:
+                self.assertTrue(it.strip(), "%s 里有空名字" % name)
 
     def test_bootstrap_collections_shape(self):
         """合集表是 {cid: {name, workshop_id, files}}，前端按 cid 直接用。"""

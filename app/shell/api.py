@@ -259,6 +259,63 @@ def _game_running():
         return None
 
 
+_CATALOG = None
+
+
+def _category_catalog():
+    """分类 → 该分类下**可能出现的全部子分类**（含目前没有模组的那种）。
+
+    名字不是手抄的：全部来自 `app/core/classify.py` 与 `classify_data.py`
+    的词表 —— 那才是分类器真正会写进 `item` 的值（`WHITELIST_STEMS`
+    的每条规则、前缀/正则规则、以及人物/武器/近战/医疗的名单）。
+    UI 自己再抄一份迟早会漂：新武器忘了加、同一把枪两种叫法。
+
+    为什么要它：分类器只给自己的结果，`bootstrap` 只带**库里出现过**的值，
+    于是「特感」里只剩 Tank / 普通感染者，Hunter 那些一个都看不见 ——
+    用户会以为分类坏了。
+    """
+    global _CATALOG
+    if _CATALOG is not None:
+        return _CATALOG
+    pairs = set()
+    try:
+        from app.core import classify as C
+        from app.core import classify_data as D
+
+        for vals in D.WHITELIST_STEMS.values():
+            for cat, item in vals:
+                if item:
+                    pairs.add((cat, item))
+        for _prefix, cat, item in D.PREFIX_RULES:
+            if item:
+                pairs.add((cat, item))
+        for _regex, cat, item in D.REGEX_RULES:
+            if item:
+                pairs.add((cat, item))
+        for cat, names in (("角色", C.SURVIVOR_NAMES), ("特感", C.SPECIAL_NAMES),
+                           ("枪械", C.WEAPON_SEG_NAMES), ("近战", C.MELEE_NAMES),
+                           ("医疗品", C.MED_NAMES)):
+            for name in names.values():
+                if name:
+                    pairs.add((cat, name))
+        # 投掷没有单独的名单：词表里 kind == "thr" 的才是
+        for _kw, kind, name in C.KEYWORDS:
+            if kind == "thr" and name:
+                pairs.add(("投掷", name))
+    except Exception as exc:      # core 词表改结构时别把启动搞挂
+        print("[shell] 读取分类词表失败：%s" % exc, file=sys.stderr)
+        _CATALOG = {}
+        return _CATALOG
+
+    out = {}
+    for cat, item in sorted(pairs):
+        out.setdefault(cat, [])
+        if item not in out[cat]:
+            out[cat].append(item)
+    _CATALOG = out
+    return _CATALOG
+
+
 def _fmt_ago(ts):
     """时间戳 → 「2 天前」这类相对时间。"""
     try:
@@ -470,6 +527,9 @@ class Api(object):
                 game={"running": running, "unknown": game_check_failed},
                 # 合集表：模组详情里「更多 → 合集」用，纯展示。
                 collections=self._collections_payload(),
+                # 分类 → 全部可能的子分类。用来把「没有模组的子分类」也画出来
+                # （特感只有 2 个的时候，用户会以为分类坏了）。
+                catalog=_category_catalog(),
                 paths={
                     "addons": gp.addons_dir if gp else "",
                     "valid": bool(gp and gp.valid()),
