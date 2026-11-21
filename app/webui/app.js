@@ -86,6 +86,7 @@
   if (typeof document === 'undefined') {
     module.exports = {
       adapt,
+      displayTitle,
       CATEGORY_OPTIONS,
       RAIL_DEFS,
       RAILS,
@@ -266,6 +267,57 @@
     });
   }
 
+  /**
+   * 单行输入对话框：返回输入值（已 trim）；取消返回 null。
+   *
+   * 为什么不用 `window.prompt()`：WebView2 里原生对话框可能被宿主拦掉
+   * （pywebview 不保证透传），而且和 BLACKSITE 风格完全不搭。
+   * 「自定义标题」现在是详情栏里看得见的入口，不能建在一个可能不出现的
+   * 原生弹窗上。
+   */
+  function textDialog({ title, text = '', value = '', placeholder = '', confirm = '保存', width = 460 }) {
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (v) => {
+        if (settled) return;
+        settled = true;
+        resolve(v);
+      };
+      const html = `<div class="dlg info" style="max-width:${width}px">
+        <div class="dlg-head"><span class="dot"></span><h4>${esc(title)}</h4>
+          <button class="dlg-close" type="button" data-btn="close" aria-label="关闭">${icon('x')}</button></div>
+        <div class="dlg-body">${text ? `<p class="dlg-text">${esc(text)}</p>` : ''}
+          <input class="dlg-input" id="dlgInput" type="text" value="${esc(value)}"
+                 placeholder="${esc(placeholder)}" autocomplete="off" spellcheck="false"></div>
+        <div class="dlg-foot">
+          <button class="btn ghost" type="button" data-btn="0">取消</button>
+          <button class="btn primary" type="button" data-btn="1">${esc(confirm)}</button>
+        </div></div>`;
+      // 遮罩 / ESC 关闭时解析为「取消」
+      openModal(html, { onClose: () => finish(null) });
+      const input = $('#dlgInput');
+      if (input) {
+        input.focus();
+        input.select();
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            finish(input.value.trim());
+            closeModal(false);
+          }
+        });
+      }
+      $$('#modal-host [data-btn]').forEach((b) => {
+        b.addEventListener('click', () => {
+          const el = $('#dlgInput');
+          const v = el ? el.value.trim() : '';
+          finish(b.dataset.btn === '1' ? v : null);
+          closeModal(false);   // 结果已 resolve，这里只负责关窗
+        });
+      });
+    });
+  }
+
   $('#modal-root').addEventListener('click', (e) => {
     // 点遮罩或弹窗外的留白都关闭
     const t = e.target;
@@ -290,7 +342,9 @@
     let list = modsInRail(state.rail);
     if (state.query) {
       const q = state.query.toLowerCase();
-      list = list.filter((m) => (m.name + ' ' + m.alias + ' ' + m.file + ' ' + m.item).toLowerCase().includes(q));
+      // 搜索匹配三层标题（别名/标题/文件名）+ 子分类，任何一层都能搜到
+      list = list.filter((m) => (displayTitle(m) + ' ' + m.name + ' ' + m.alias
+        + ' ' + m.file + ' ' + m.item).toLowerCase().includes(q));
     }
     if (state.filterItem) {
       const f = state.filterItem;
@@ -495,7 +549,7 @@
     }
 
     grid.innerHTML = list.map((m) => {
-      const shown = m.alias || m.name;
+      const shown = displayTitle(m);
       return `<article class="mod-card ${m.id === state.selectedId ? 'selected' : ''} ${m.enabled ? 'is-on' : ''}" data-mod="${m.id}" tabindex="0" title="单击查看详情 · ${m.enabled ? '双击停用' : '双击启用'}">
         <div class="mod-thumb">
           <img src="${esc(m.img)}" alt="${esc(shown)}" loading="lazy">
@@ -588,7 +642,7 @@
       const parts = files.map((f) => {
         const mm = MODS.find((x) => x.file === f);
         const cur = !!(mm && mm.id === m.id);
-        const label = mm ? (mm.alias || mm.name) : f;
+        const label = mm ? displayTitle(mm) : f;
         const running = !!(mm && mm.enabled);
         return `<li class="coll-part${cur ? ' cur' : ''}${mm ? '' : ' gone'}"`
           + (mm ? ` data-part="${esc(mm.id)}" role="button" tabindex="0"` : '')
@@ -623,7 +677,7 @@
       $('#inspector').innerHTML = '<div class="empty">选择左侧任意模组查看详情。</div>';
       return;
     }
-    const shown = m.alias || m.name;
+    const shown = displayTitle(m);
 
     // 分类行：用户手工改过分类时（autoCat !== null），
     // 把「用户设的分类」作为主值，把「管理器识别到的」置灰附在下面 ——
@@ -673,7 +727,9 @@
       ${renderMoreBlock(m)}
 
       <div class="inspector-actions">
-        <button class="icon-action" type="button" id="insAlias" title="设置别名" aria-label="设置别名">${icon('tag')}</button>
+        <button class="text-action" type="button" id="insAlias"
+          title="${m.alias ? '当前自定义标题：' + esc(m.alias) : '给这个模组起个更好认的名字'}"
+          aria-label="自定义标题">${icon('tag')}<span>自定义标题</span></button>
         <button class="icon-action" type="button" id="insFolder" title="打开文件夹" aria-label="打开文件夹">${icon('folder')}</button>
         ${m.ws ? `<button class="icon-action" type="button" id="insWorkshop" title="打开工坊页" aria-label="打开工坊页">${icon('external')}</button>` : ''}
         <div class="more-wrap">
@@ -717,18 +773,26 @@
     }
 
     $('#insAlias').addEventListener('click', async () => {
-      const value = prompt('别名（留空恢复原名）', m.alias || '');
+      // 三层兜底里的第一层：用户自定义标题。留空 = 清掉别名，回到 title/文件名。
+      const value = await textDialog({
+        title: '自定义标题',
+        text: `为《${shown}》设一个更好认的名字。留空则恢复原始标题。\n\n`
+            + `原始标题：${m.name}\n文件：${m.file}`,
+        value: m.alias || '',
+        placeholder: m.name,
+        confirm: '保存标题',
+      });
       if (value === null) return;
-      const next = value.trim();
-      const res = await window.bridge.set_alias(m.file, next);
+      const res = await window.bridge.set_alias(m.file, value);
       if (!res || !res.ok) {
-        await infoDialog({ title: '无法保存别名', tone: 'danger',
+        await infoDialog({ title: '无法保存标题', tone: 'danger',
                            text: (res && res.error) || '写入失败' });
         return;
       }
-      m.alias = next;
+      m.alias = value;
+      // 卡片、详情、搜索结果一次改完，不需要刷新页面
       renderGrid(); renderInspector();
-      toast(next ? '别名已保存' : '已恢复原名');
+      toast(value ? '标题已保存' : '已恢复原始标题');
     });
 
     $('#insFolder').addEventListener('click', async () => {
@@ -894,6 +958,24 @@
       // 注：2026-11-20 起不再有 mutex / mutexApplicable / groupMutex ——
       // 互斥机制已整体拆除，用户自行管理冲突。
     };
+  }
+
+  /** 显示用标题：**用户别名 → 模组标题 → vpk 文件名**，三层兜底。
+
+      卡片、详情标题、搜索结果、合集部件列表全部走这一条 ——
+      以前是各自写一遍 `m.alias || m.name`，多一处就多一处漂移的机会。
+
+      第三层给的是**完整文件名（含 .vpk）**：这是用户能在 addons 目录里
+      直接搜到、和磁盘一一对应的那个字符串。
+  */
+  function displayTitle(m) {
+    // 每一层都 trim 后再判断「有没有」：别名被清空成空格、或标题只剩空白，
+    // 都不该把一串空格当成有效标题显示出来。
+    for (const v of [m.alias, m.name, m.file]) {
+      const t = (v || '').trim();
+      if (t) return t;
+    }
+    return '';
   }
 
   async function loadFromBridge() {

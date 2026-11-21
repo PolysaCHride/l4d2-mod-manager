@@ -234,6 +234,38 @@ check('RAIL_DEFS 覆盖全部分类（否则模组会「消失」）', () => {
   eq(missing, [], '这些分类不在任何 rail 里，对应模组看不见');
 });
 
+console.log('\n标题三层兜底（别名 → 模组标题 → vpk 文件名）');
+
+// 这条链必须和 Python 侧 `_to_mod` 的 title 兜底接得上：
+//   _to_mod:  title = rec["title"] or rec["file"]      （永远非空，末层是完整文件名）
+//   adapt:    name  = apiMod.title or apiMod.file
+//   displayTitle: alias → name → file
+check('有别名时用别名', () => {
+  eq(app.displayTitle({ alias: '夏日甜点屋', name: 'VRC プラム', file: '3664792140.vpk' }),
+     '夏日甜点屋');
+});
+
+check('无别名时用模组标题', () => {
+  eq(app.displayTitle({ alias: '', name: 'The Bloody Moors', file: '189941645.vpk' }),
+     'The Bloody Moors');
+});
+
+check('都没有时用完整 vpk 文件名（含扩展名）', () => {
+  eq(app.displayTitle({ alias: '', name: '', file: '189941645.vpk' }), '189941645.vpk');
+});
+
+check('全是空白字符视为没有，继续往下兜底', () => {
+  eq(app.displayTitle({ alias: '   ', name: '  ', file: 'a.vpk' }), 'a.vpk');
+});
+
+check('别名两端空格会被裁掉', () => {
+  eq(app.displayTitle({ alias: '  甜点屋  ', name: 'X', file: 'a.vpk' }), '甜点屋');
+});
+
+check('三层都缺也不会返回 undefined', () => {
+  eq(app.displayTitle({}), '');
+});
+
 console.log('\n写入闸门（game.unknown）');
 
 check('running=true 时禁止写入', () => {

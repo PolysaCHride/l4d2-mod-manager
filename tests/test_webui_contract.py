@@ -181,6 +181,39 @@ class TestToModContract(unittest.TestCase):
                          "前端缺少这些分类，对应模组在专属分类里看不见：%s" % missing)
 
 
+    def test_title_falls_back_to_full_file_name(self):
+        """标题最后一层兜底是**完整 vpk 文件名**（含扩展名）。
+
+        前端 displayTitle 的第三层拿到的就是这个值；给成去掉扩展名的
+        stem 会让用户没法拿它去 addons 目录里对文件。
+        """
+        rec = self._rec(file="189941645.vpk")
+        rec["title"] = ""
+        out = self.api._to_mod(rec)
+        self.assertEqual(out["title"], "189941645.vpk")
+        self.assertTrue(out["title"].endswith(".vpk"))
+
+    def test_title_chain_matches_core_display_name(self):
+        """三层兜底必须与 core 的 mod_display_name 一致。
+
+        core 早在 `store.mod_display_name()` 里定了这条规则
+        （alias > title > file）。新前端 displayTitle 是它的镜像 ——
+        两边一旦不一致，同一个模组在两个界面/搜索结果里会叫两个名字。
+        """
+        from app.core.store import mod_display_name
+        cases = [
+            {"file": "a.vpk", "title": "The Bloody Moors", "alias": "沼泽地图"},
+            {"file": "a.vpk", "title": "The Bloody Moors", "alias": ""},
+            {"file": "189941645.vpk", "title": "", "alias": ""},
+        ]
+        for case in cases:
+            rec = self._rec(**case)
+            out = self.api._to_mod(rec)
+            # 前端拿到 alias + title 后自己拼：alias || title
+            frontend = (out["alias"] or "").strip() or out["title"]
+            self.assertEqual(frontend, mod_display_name(rec), case)
+
+
 class TestBootstrapShape(unittest.TestCase):
     """bootstrap 的顶层结构是前端启动的契约。"""
 

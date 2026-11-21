@@ -563,12 +563,21 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 .coll-here { flex: none; color: #68736a; font-size: 8.5px; }
 .more-note { margin: 8px 0 0; color: #5b655c; font-size: 8.5px; line-height: 1.65; }
 .more-note.dim { margin-top: 4px; color: #464d47; }
-
 .inspector-actions { margin-top: auto; padding-top: 2px; display: flex; align-items: center; gap: 3px; }
 .icon-action { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 4px; color: #7f8a80; }
 .icon-action svg.i { width: 15px; height: 15px; }
 .icon-action:hover { background: #171c17; color: #e4ebdf; }
 .icon-action.danger:hover { background: #1b0f0c; color: #ff8f7d; }
+/* 带文字的动作按钮：纯图标看不出来是干什么的（别名入口曾经就是这个问题） */
+.text-action {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 28px; padding: 0 8px; border-radius: 4px;
+  border: 1px solid #2b332c; background: transparent;
+  color: #9aa598; font-family: inherit; font-size: 9px;
+  cursor: pointer; white-space: nowrap;
+}
+.text-action svg.i { width: 13px; height: 13px; }
+.text-action:hover { border-color: var(--accent); color: var(--accent); }
 .actions-spacer { flex: 1; }
 .more-wrap { position: relative; }
 .more-menu {
@@ -667,6 +676,15 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 .dlg-row .row-tag.bad { color: var(--danger); }
 .dlg-check { display: flex; align-items: center; gap: 7px; margin-top: 11px; color: var(--text-secondary); font-size: 9.5px; cursor: pointer; }
 .dlg-check input { width: 12px; height: 12px; accent-color: var(--accent); }
+/* 单行输入框（自定义标题）。原本这里用 window.prompt()，WebView2 里不可靠 */
+.dlg-input {
+  width: 100%; margin-top: 11px; padding: 7px 9px;
+  border: 1px solid #2c332c; border-radius: 4px;
+  background: #0e120f; color: #e4ebdf;
+  font-family: inherit; font-size: 11px;
+}
+.dlg-input::placeholder { color: #4e564f; }
+.dlg-input:focus { outline: none; border-color: var(--accent); }
 /* 单选列表（分类选择等）：滚动区 + 与 dlg-row 一致的视觉节奏 */
 .dlg-choices {
   margin-top: 10px; max-height: 300px; overflow-y: auto;
