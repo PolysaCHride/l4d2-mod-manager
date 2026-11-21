@@ -333,6 +333,8 @@ window.__coll = null;
       const missing = want.filter((n) => out.specialRows.indexOf(n) < 0);
       ok(missing.length === 0, '特感少了子分类：' + missing.join(','));
       ok(out.specialRows.indexOf('全部特感') === 0, '第一行应该是「全部特感」');
+      ok(out.specialRows.indexOf('未指定物品') === 1,
+         '第二行应该是「未指定物品」：' + out.specialRows.join(' / '));
 
       const empty = rows.find((r) => r.name === 'Hunter');
       out.emptyCount = empty ? empty.count : null;
@@ -352,6 +354,43 @@ window.__coll = null;
       await sleep(600);
       out.specialCards = document.querySelectorAll('.mod-card').length;
       ok(out.specialCards > 0, '回到「全部特感」后没有卡片');
+    }
+
+    // ── 「未指定物品」在每个一级分类下都有，并且只筛本分类 ──
+    // 以前只有单层列表临时追加这一行，分组里根本没有；而且点哪个分类的
+    // 「未指定物品」都会把整个 rail 的空 item 模组混在一起。
+    const railOther = document.querySelector('[data-rail="other"]');
+    if (railOther) {
+      railOther.click();
+      await sleep(900);
+      // 展开全部分组（有的默认收起）
+      [...document.querySelectorAll('[data-group][aria-expanded="false"]')]
+        .forEach((h) => h.click());
+      await sleep(600);
+      const unsetRows = [...document.querySelectorAll('.filter-row')]
+        .filter((r) => r.querySelector('.item-name')
+          && r.querySelector('.item-name').textContent === '未指定物品');
+      out.unsetCats = [...new Set(unsetRows.map((r) => r.dataset.cat))];
+      ok(out.unsetCats.length >= 3,
+         '「其他」里多个分类都该有「未指定物品」，实际 ' + out.unsetCats.join(','));
+
+      // 点「音效音乐 → 未指定物品」，只应筛出音效音乐里没有子分类的那些
+      const target = unsetRows.find((r) => r.dataset.cat === '音效音乐');
+      ok(!!target, '音效音乐没有「未指定物品」行');
+      const bb = await window.bridge.bootstrap();
+      const expect = bb.mods.filter((m) => m.category === '音效音乐'
+        && !m.item && !m.collection).length;
+      out.unsetExpect = expect;
+      if (target) {
+        target.click();
+        await sleep(800);
+        out.unsetCards = document.querySelectorAll('.mod-card').length;
+        ok(out.unsetCards === expect,
+           '「未指定物品」筛出的数量不对：' + out.unsetCards + ' vs ' + expect);
+        out.unsetCrumb = (document.querySelector('#crumb') || {}).textContent || '';
+        ok(out.unsetCrumb.indexOf('音效音乐') >= 0,
+           '面包屑没带分类：' + out.unsetCrumb);
+      }
     }
 
     // 没有合集的模组**也要**有「更多」块，正文写「不属于任何合集」
@@ -434,6 +473,9 @@ def run(win):
           % (len(out.get("specialRows") or []),
              "、".join(out.get("specialRows") or []),
              out.get("emptyCount"), out.get("emptyCards")), flush=True)
+    print("[coll] 未指定物品：分类=%s 音效音乐应有 %s 筛出 %s 面包屑=%r"
+          % (",".join(out.get("unsetCats") or []), out.get("unsetExpect"),
+             out.get("unsetCards"), out.get("unsetCrumb")), flush=True)
     print("[coll] 选择器：现有 %s 项 可滚动=%s 已排序=%s 不细分行=%s；树上按名排序=%s；"
           "新建项自动清除=%s；自带项保留=%s；⋯ 已隐藏=%s"
           % (out.get("subOptions"), out.get("subScrollable"), out.get("subSorted"),

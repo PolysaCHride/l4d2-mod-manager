@@ -59,7 +59,10 @@
 
   /** 取某个二级分类下的物品名（按数量降序，带「全部X」置顶）。 */
   function itemsOfCategory(catName, pool) {
-    return ['全部' + catName].concat(
+    // 第二行永远是「未指定物品」：这个分类下 item 为空的模组只能从这里找到，
+    // 以前只在单层列表里临时追加，分组里干脆没有 —— 于是「音效音乐 13 个，
+    // 但只有一个子分类」这种账对不上。
+    return ['全部' + catName, '未指定物品'].concat(
       subItemsOf(catName, pool, state.collections, state.catalog));
   }
 
@@ -119,6 +122,10 @@
     // 分类 → 该分类下**全部可能的子分类**（后端从 core 词表算出）。
     // 有它才能把「目前没有模组的子分类」也画出来（特感只有 2 个时像坏了）。
     catalog: {},
+    // 当前筛选所在的分类组（「武器」rail 里点「枪械 → 未指定物品」只应看枪械）。
+    // 没有它的话，同名子分类会串（「语音」在角色和特感里都有；「未指定物品」
+    // 每个分类都有），点哪个都会把整个 rail 的结果混在一起。
+    filterCat: '',
     // 详情下方「更多」折叠块是否展开。跨重渲染保留，
     // 否则拨一下开关就会把它收回去。
     moreOpen: false,
@@ -440,6 +447,10 @@
       list = list.filter((m) => (displayTitle(m) + ' ' + m.name + ' ' + m.alias
         + ' ' + m.file + ' ' + displayItem(m, state.collections)).toLowerCase().includes(q));
     }
+    if (state.filterCat) {
+      // 组内筛选：先按分类收窄，否则同名子分类会串
+      list = list.filter((m) => m.cat === state.filterCat);
+    }
     if (state.filterItem) {
       const f = state.filterItem;
       if (f.startsWith('全部')) {
@@ -497,6 +508,7 @@
       all.forEach((m) => { if (seen.indexOf(m.cat) < 0) seen.push(m.cat); });
       groups = seen.map((catName) => ({
         key: catName,
+        pool: all.filter((m) => m.cat === catName),
         items: itemsOfCategory(catName, all),
       }));
       groups.forEach((g) => state.openGroups.add(g.key));
@@ -505,24 +517,24 @@
       (def.cats || []).forEach((catName) => {
         const pool = all.filter((m) => m.cat === catName);
         if (pool.length) {
-          groups.push({ key: catName, items: itemsOfCategory(catName, pool) });
+          groups.push({ key: catName, pool,
+                        items: itemsOfCategory(catName, pool) });
         }
       });
     } else {
       // 角色 / 特感 / 地图：单层列表，物品直接摊平
       // 单分类 rail（角色/特感/地图）按分类取目录；「全部」rail 不铺全量目录
       const onlyCat = def.cats && def.cats.length === 1 ? def.cats[0] : null;
-      const items = ['全部' + def.title].concat(
+      const items = ['全部' + def.title, '未指定物品'].concat(
         subItemsOf(onlyCat, all, state.collections, state.catalog));
-      const unspecified = all.filter((m) => !displayItem(m, state.collections));
-      if (unspecified.length) items.push('未指定物品');
       groups = [{ key: def.title, items, flat: true }];
     }
 
     let body = '';
     if (groups.length === 1 && groups[0].flat) {
       // 单层：不加树头
-      body = '<div class="filter-list">' + renderItemRows(groups[0].items, all, false) + '</div>';
+      body = '<div class="filter-list">'
+        + renderItemRows(groups[0].items, all, false, groups[0].key) + '</div>';
     } else {
       body = '<div class="filter-list is-tree">' + groups.map((g) => {
         const open = state.openGroups.has(g.key);
@@ -531,7 +543,7 @@
                   data-group="${esc(g.key)}" aria-expanded="${open}">
             <svg class="fold-caret" aria-hidden="true"><use href="#i-caret"></use></svg>
             <span>${esc(g.key)}</span><span class="count">${count}</span></button>
-          <div class="tree-items" ${open ? '' : 'hidden'}>${renderItemRows(g.items, all, true)}</div>`;
+          <div class="tree-items" ${open ? '' : 'hidden'}>${renderItemRows(g.items, g.pool || all, true, g.key)}</div>`;
       }).join('') + '</div>';
     }
 
@@ -558,6 +570,7 @@
 
     $$('[data-item]').forEach((b) => b.addEventListener('click', () => {
       state.filterItem = b.dataset.item;
+      state.filterCat = b.dataset.cat || '';
       const pool = visibleMods();
       if (!pool.some((m) => m.id === state.selectedId) && pool.length) {
         state.selectedId = pool[0].id;
@@ -584,12 +597,15 @@
   }
 
   /** 渲染物品行。 */
-  function renderItemRows(items, pool, nested) {
+  function renderItemRows(items, pool, nested, catName) {
     return orderFilterItems(items, pool).map((name) => {
       const isAll = name.startsWith('全部');
       const isUnset = name === '未指定物品';
+      // 只有「当前分类 + 当前项」同时匹配才算选中：
+      // 「语音」在角色/特感里都有，「未指定物品」每个分类都有
+      const tab = catName || '';
       const active = state.filterItem
-        ? state.filterItem === name
+        ? state.filterItem === name && (state.filterCat || '') === tab
         : isAll;
       let count;
       if (isAll) {
@@ -602,10 +618,11 @@
       } else {
         count = pool.filter((m) => displayItem(m, state.collections) === name).length;
       }
-      const hasOn = !isAll && pool.some(
-        (m) => displayItem(m, state.collections) === name && m.enabled);
+      const hasOn = !isAll && pool.some((m) => (isUnset
+        ? !displayItem(m, state.collections)
+        : displayItem(m, state.collections) === name) && m.enabled);
       return `<button class="filter-row ${nested ? 'is-nested' : ''} ${active ? 'active' : ''}"
-                type="button" data-item="${esc(name)}">
+                type="button" data-item="${esc(name)}" data-cat="${esc(tab)}">
           <span class="item-name">${esc(name)}</span>
           <span class="count">${count || ''}</span>
           ${hasOn ? '<span class="active-mark"></span>' : ''}</button>`;
@@ -616,10 +633,11 @@
   function renderHeader() {
     const rail = RAILS[state.rail];
     const item = state.filterItem && !state.filterItem.startsWith('全部') ? state.filterItem : '';
-    const title = item || rail.title;
-    $('#crumb').innerHTML = `模组库 ${icon('chevron-right')} ${esc(rail.title)}${item ? ' ' + icon('chevron-right') + ' <strong>' + esc(item) + '</strong>' : ''}`;
+    // 带上分类：「语音」角色/特感都有，「未指定物品」每个分类都有
+    const tag = item && state.filterCat ? state.filterCat + ' · ' + item : item;
+    $('#crumb').innerHTML = `模组库 ${icon('chevron-right')} ${esc(rail.title)}${tag ? ' ' + icon('chevron-right') + ' <strong>' + esc(tag) + '</strong>' : ''}`;
     const alias = item ? (MODS.find((m) => m.item === item && m.alias) || {}).alias : '';
-    const main = item || rail.title;
+    const main = tag || rail.title;
     $('#pageTitle').innerHTML = `${esc(main)}` + (alias ? ` <span>${esc(alias)}</span>` : '');
     const list = visibleMods();
     $('#countMeta').innerHTML = `<strong>${String(list.length).padStart(2, '0')}</strong> / ${modsInRail(state.rail).length} 项`;
@@ -1953,6 +1971,7 @@
     if (state.view !== 'library') setView('library');
     state.rail = b.dataset.rail;
     state.filterItem = null;
+    state.filterCat = '';
     state.query = '';
     const pool = modsInRail(state.rail);
     if (!pool.some((m) => m.id === state.selectedId)) {
