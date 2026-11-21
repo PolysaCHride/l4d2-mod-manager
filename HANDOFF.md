@@ -227,6 +227,16 @@ release/L4D2 Mod Manager-v<版本>-win64/           旧栈（无 -web 后缀）
 
 会短暂弹窗，所以默认不开。**改过 spec / `hiddenimports` / 入口文件之后必须开一次。**
 
+#### 产物搬运/压缩要带重试
+
+刚写完的 46MB 产物会被 Defender / 索引器短暂独占，`Move-Item` 直接抛
+`Access to the path ... is denied`。第一次遇到时排查了半天 —— 手动重跑同一个
+`Move-Item` 就成功了，纯属瞬态。
+
+现在 `Remove-Item`（旧产物 / 旧 zip）、`Move-Item`、`Compress-Archive`
+都包了 `Invoke-WithRetry`（最多 6 次，间隔递增）。失败信息会带上
+「哪个步骤 + 试了几次」，而不是丢一个裸的 IOException。
+
 #### ⚠️ `.ps1` 必须是 UTF-8 **with BOM**
 
 `build_release.ps1` 和 `packaging/fetch_7zip.ps1` 里都有中文。Windows PowerShell 5.1

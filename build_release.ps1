@@ -108,6 +108,24 @@ function Invoke-SmokeTest([string]$Dir, [string]$Label) {
     Write-Host "  冒烟通过：exe 能启动，桥接 ok=true" -ForegroundColor Green
 }
 
+# 刚写完的文件常被 Defender / 索引器短暂独占，Move-Item / Remove-Item
+# 会抛 "Access to the path ... is denied"。这不是真错误，等一会儿重试就好；
+# 但失败一次就会毁掉整次构建（产物停在 release\.build 里，zip 还是旧的）。
+function Invoke-WithRetry([scriptblock]$Action, [string]$What, [int]$Tries = 6) {
+    for ($i = 1; $i -le $Tries; $i++) {
+        try {
+            & $Action
+            return
+        }
+        catch {
+            if ($i -eq $Tries) {
+                throw "[$What] 重试 $Tries 次仍然失败：$($_.Exception.Message)"
+            }
+            Start-Sleep -Milliseconds (250 * $i)
+        }
+    }
+}
+
 # 从 version_info.txt 读主版本号，避免版本号在三个地方各写一遍。
 function Get-ProjectVersion {
     $text = Get-Content -LiteralPath $versionInfo -Raw
@@ -211,9 +229,14 @@ function New-Release([string]$Stack, [string]$Ver) {
             throw "[$Stack] PyInstaller 未生成预期目录: $rawPackageDir"
         }
         if (Test-Path -LiteralPath $packageDir) {
-            Remove-Item -LiteralPath $packageDir -Recurse -Force
+            Invoke-WithRetry { Remove-Item -LiteralPath $packageDir -Recurse -Force } `
+                "删除旧产物"
         }
-        Move-Item -LiteralPath $rawPackageDir -Destination $packageDir
+        Invoke-WithRetry { Move-Item -LiteralPath $rawPackageDir -Destination $packageDir } `
+            "移动产物到 release"
+        if (-not (Test-Path -LiteralPath $packageDir -PathType Container)) {
+            throw "[$Stack] 产物没有被搬到预期位置: $packageDir"
+        }
     }
 
     Test-Package $packageDir $Stack
@@ -235,9 +258,11 @@ function New-Release([string]$Stack, [string]$Ver) {
     }
 
     if (Test-Path -LiteralPath $zipPath) {
-        Remove-Item -LiteralPath $zipPath -Force
+        Invoke-WithRetry { Remove-Item -LiteralPath $zipPath -Force } "删除旧 zip"
     }
-    Compress-Archive -LiteralPath $packageDir -DestinationPath $zipPath -CompressionLevel Optimal
+    Invoke-WithRetry {
+        Compress-Archive -LiteralPath $packageDir -DestinationPath $zipPath -CompressionLevel Optimal
+    } "压缩产物" 3
 
     $sizeMB = [math]::Round((Get-ChildItem -LiteralPath $packageDir -Recurse -File |
         Measure-Object -Property Length -Sum).Sum / 1MB, 1)
