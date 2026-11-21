@@ -46,8 +46,20 @@
       addedText: '1 周前', pinned: false },
   ];
 
+  // 演示用合集：让浏览器预览也能看到「详情 → 更多 → 合集」块
+  // （真实数据里的合集由「导入工坊合集」流程建立，不在界面上手工编组）
+  const MOCK_COLL = {
+    ws_900001: { name: 'Ellis 皮肤合集', workshop_id: '900001',
+                 files: ['m2.vpk', 'm3.vpk', 'm5.vpk'] },
+  };
+  ['m2.vpk', 'm3.vpk', 'm5.vpk'].forEach((f) => {
+    const m = MOCK_MODS.find((x) => x.file === f);
+    if (m) m.collection = 'ws_900001';
+  });
+
   const MOCK = {
     mods: MOCK_MODS.map((m) => Object.assign({}, m)),
+    collections: MOCK_COLL,
     settings: { game_dir: 'E:\\SteamLibrary\\steamapps\\common\\Left 4 Dead 2',
                 proxy: '', archiver_path: '', palette: 'blacksite', motion: true },
     paths: { addons: 'E:\\SteamLibrary\\steamapps\\common\\Left 4 Dead 2\\left4dead2\\addons',
@@ -114,6 +126,7 @@
       mods: mods.map((m) => Object.assign({}, m)),
       settings: Object.assign({}, MOCK.settings),
       stats: { total: mods.length, enabled: mods.filter((m) => m.enabled).length },
+      collections: Object.assign({}, MOCK.collections),
       game: { running: false },
       paths: Object.assign({}, MOCK.paths),
       version: MOCK.version,

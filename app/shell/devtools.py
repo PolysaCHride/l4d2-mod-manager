@@ -22,6 +22,8 @@ def shot_window(window, path, title, wait=6.0):
     from ctypes import wintypes
 
     time.sleep(wait)
+    user32 = gdi32 = None
+    hwnd = hdc = mdc = bmp = None
     try:
         user32 = ctypes.windll.user32
         gdi32 = ctypes.windll.gdi32
@@ -58,28 +60,42 @@ def shot_window(window, path, title, wait=6.0):
         bi = BMIH()
         bi.biSize = ctypes.sizeof(BMIH)
         bi.biWidth = w
-        bi.biHeight = -h          # 负数 = 自上而下，否则 BMP 会上下颠倒
+        bi.biHeight = -h          # 负数 = GetDIBits 按「自上而下」给像素
         bi.biPlanes = 1
         bi.biBitCount = 32
         bi.biCompression = 0
 
         buf = ctypes.create_string_buffer(w * h * 4)
-        if gdi32.GetDIBits(mdc, bmp, 0, h, buf, ctypes.byref(bi), 0):
-            import struct
-            hdr = b"BM" + struct.pack("<IHHI", 54 + len(buf), 0, 0, 54)
-            info = struct.pack("<IiiHHIIiiII", 40, w, h, 1, 32, 0,
-                               w * h * 4, 0, 0, 0, 0)
-            with open(path, "wb") as f:
-                f.write(hdr + info + buf.raw)
-            print("[shot] saved", path, flush=True)
-            return True
+        if not gdi32.GetDIBits(mdc, bmp, 0, h, buf, ctypes.byref(bi), 0):
+            print("[shot] GetDIBits failed", flush=True)
+            return False
 
-        gdi32.DeleteObject(bmp)
-        gdi32.DeleteDC(mdc)
-        user32.ReleaseDC(hwnd, hdc)
+        import struct
+        hdr = b"BM" + struct.pack("<IHHI", 54 + len(buf), 0, 0, 54)
+        # ⚠️ 文件头里 biHeight 也必须写 -h，与上面 GetDIBits 的行序保持一致。
+        # 早先这里写的是正数（声明 bottom-up）而数据其实是 top-down，
+        # 结果每张截图在 Viewers 里都是上下颠倒的。
+        info = struct.pack("<IiiHHIIiiII", 40, w, -h, 1, 32, 0,
+                           w * h * 4, 0, 0, 0, 0)
+        with open(path, "wb") as f:
+            f.write(hdr + info + buf.raw)
+        print("[shot] saved", path, flush=True)
+        return True
     except Exception as exc:
         print("[shot] failed:", exc, flush=True)
-    return False
+        return False
+    finally:
+        # GDI 句柄每次都要释放。早先成功分支直接 return，
+        # bmp / mdc / hdc 一直没释放（重复截图会一路累积）。
+        try:
+            if gdi32 and bmp:
+                gdi32.DeleteObject(bmp)
+            if gdi32 and mdc:
+                gdi32.DeleteDC(mdc)
+            if user32 and hdc:
+                user32.ReleaseDC(hwnd, hdc)
+        except Exception:
+            pass
 
 
 # ------------------------------------------------------------- UI 断言

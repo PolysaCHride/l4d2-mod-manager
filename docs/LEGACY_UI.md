@@ -54,16 +54,15 @@ from app.ui.main_window import mod_count_text, sort_item_entries
 |---|---|
 | 旧实现 | `app/ui/workers.py:298` `PreviewWorker` |
 | 作用 | 给没有本地预览图的模组下载工坊缩略图 |
-| 新 UI 状态 | ❌ 没移植 |
-
-影响：新 UI 里无预览图的模组显示占位渐变。
+| 新 UI 状态 | ❌ 没移植（**2026-11-21 实测后确认不做**：200 条里 194 条自带图、
+5 条走 wiki 兜底、0 条全黑，补下载只值 6 张图，见 `docs/ALIGNMENT_AUDIT.md` B-3） |
 
 ### 2.3 **反查物品所属合集**
 
 | | |
 |---|---|
 | 旧实现 | `app/ui/workers.py:311` `ParentCollectionWorker` |
-| 新 UI 状态 | ❌ 没移植 |
+| 新 UI 状态 | ❌ 没移植（合集**展示**已做，见 HANDOFF §8.8；反查仍未做） |
 
 **这是最值得保留的一项。** 它实现了「Steam 没有官方反查接口，于是三路尝试」：
 

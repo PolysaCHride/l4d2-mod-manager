@@ -65,7 +65,7 @@
 | `added_at` | int | 首次登记时间（epoch 秒） | `new_mod_record` |
 | `updated_at` | int | 预留，当前恒为 0 | — |
 | `source` | str | `scan`/`adopt`/`migrate`/`import`/`download` | 各写入路径 |
-| `collection` | str | 所属合集 ID（带 `ws_` 前缀） | 下载/导入 |
+| `collection` | str | 所属合集 ID（带 `ws_` 前缀）。**不可靠，会被重扫抹成空串** —— 权威来源是 `collections[cid].files`，见 §7.3 | 下载/导入 |
 | `pinned` | bool | 用户手工改过分类，扫描不再覆盖 | `set_category` |
 | `title_locked` | bool | **标题来自工坊在线补全**，重扫时不覆盖 | `_enrich_from_workshop` |
 | `auto_category` | str | **分类器原本给出的分类**。用户第一次改分类时捕获，之后不再变 | `set_category`（仅首次） |
@@ -302,10 +302,38 @@ if (old and old.get("mtime") == mtime and old.get("size") == size
 
 `preview` 为空不是错误 —— 前端会画占位渐变。
 
-### 7.3 合集 ID 的前缀
+### 7.3 合集归属：以 `collections` 表为准，别信 mod 记录上的 `collection`
 
-`collections` 的键是 `"ws_<数字>"`，而 mod 记录里的 `collection`
-字段也带同样的前缀。**别把它当成纯数字 ID 去和工坊接口比较。**
+`collections` 的键是 `"ws_<数字>"`（别当纯数字去和工坊接口比较）。
+
+**坑**：mod 记录里也有个 `collection` 字段，看着像是权威来源 —— 并不是。
+
+`_scan_one` 重建记录时只保留 `auto_category` / `auto_item` / `title_locked` /
+`pinned`，**不保留 `collection`**。所以只要重扫一次，所有归属都会被抹成空串：
+
+```
+2026-11-20 采样：collection 非空 6 条
+2026-11-21 实测：collection 非空 0 条（重扫过）
+而 collections 表里那 6 条归属始终完好
+```
+
+正确做法是**反查**（`app/shell/api.py` 的 `_collection_index()`）：
+
+```python
+for cid, info in store.collections().items():
+    for f in info["files"]:
+        idx[f] = cid          # vpk 文件名 → 合集 ID
+```
+
+`_to_mod` 优先用这个索引，记录上的 `collection` 只当兜底（覆盖「刚下载、
+还没重扫」的窗口期）。前端拿到的 `collection` 字段因此是准的。
+
+`app/core/` 是冻结层，没有去改 `_scan_one` 的保留字段 —— 反查方式不依赖
+记录字段是否同步，重扫多少次都不影响。
+
+前端通过 `bootstrap().collections` 拿到整张表（`api._collections_payload()`），
+在模组详情下方的「更多」里显示「合集名 + 各部件（标题/体积/启用状态）」。
+
 
 ---
 
@@ -323,7 +351,7 @@ if (old and old.get("mtime") == mtime and old.get("size") == size
 | `alias` 非空 | 0 |
 | `pinned=true` | 1 |
 | `updated_at` 非 0 | 0（该字段从未被写过） |
-| `collection` 非空 | 6 |
+| `collection` 非空 | 6（**2026-11-21 重扫后变 0**，见 §7.3） |
 | `workshop_id` 为空 | 1 |
 | `preview` 为空 | 6 |
 | `chapters` 存在 | 197（其中非空 48） |

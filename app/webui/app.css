@@ -515,6 +515,54 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 }
 .spec-restore:hover { border-color: var(--accent); color: var(--accent); }
 
+/* 「更多」折叠块：目前只放合集。**纯展示**，不参与启用/停用判定。
+   200 条里只有 6 条有合集归属，所以没有归属的模组干脆不渲染这块。 */
+.ins-more { border-top: 1px solid #222824; }
+.ins-more > summary {
+  display: flex; align-items: center; gap: 6px;
+  padding: 9px 0 8px; list-style: none; cursor: pointer;
+  color: #7d8a7e; font-size: 9.5px; user-select: none;
+}
+.ins-more > summary::-webkit-details-marker { display: none; }
+.ins-more > summary::before {
+  content: ""; flex: none; width: 5px; height: 5px;
+  border-right: 1px solid currentColor; border-bottom: 1px solid currentColor;
+  transform: rotate(-45deg); transition: transform .15s;
+}
+.ins-more[open] > summary::before { transform: rotate(45deg); }
+.ins-more > summary:hover { color: #c8d3c6; }
+.more-hint { margin-left: auto; color: #4e564f; font-size: 8.5px; }
+.more-body { padding: 0 0 10px; }
+
+.coll-head { display: flex; align-items: baseline; gap: 8px; padding: 0 0 6px; }
+.coll-title { color: #cfd8c9; font-size: 10.5px; }
+.link-btn {
+  margin-left: auto; padding: 0 5px;
+  border: 1px solid #2b332c; border-radius: 3px; background: transparent;
+  color: #7d8a7e; font-family: inherit; font-size: 8.5px; line-height: 1.7;
+  cursor: pointer;
+}
+.link-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ul 默认的 padding-left 会把部件列表推得比标题靠右，必须清掉 */
+.coll-parts { display: flex; flex-direction: column; gap: 1px; margin: 0; padding: 0; list-style: none; }
+.coll-part {
+  display: flex; align-items: center; gap: 7px;
+  padding: 4px 6px; border-radius: 3px;
+  color: #9aa598; font-size: 9.5px; cursor: pointer;
+}
+.coll-part:hover { background: #171c17; color: #e4ebdf; }
+.coll-part.cur { background: #1a2117; color: #dfe8d8; cursor: default; }
+.coll-part.gone { color: #4e564f; cursor: default; text-decoration: line-through; }
+.coll-dot { flex: none; width: 5px; height: 5px; border-radius: 50%; background: #39413a; }
+.coll-dot.on { background: var(--accent); box-shadow: 0 0 6px rgba(214, 244, 93, .5); }
+.coll-part-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 同图部件标题完全一样，体积是唯一能区分它们的字段 —— 所以右侧固定显示体积 */
+.coll-part-size { flex: none; color: #5b655c; font-family: "Cascadia Mono", monospace; font-size: 8.5px; }
+.coll-part.cur .coll-part-size { color: #6d7a6e; }
+.coll-here { flex: none; color: #68736a; font-size: 8.5px; }
+.more-note { margin: 8px 0 0; color: #5b655c; font-size: 8.5px; line-height: 1.65; }
+
 .inspector-actions { margin-top: auto; padding-top: 2px; display: flex; align-items: center; gap: 3px; }
 .icon-action { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 4px; color: #7f8a80; }
 .icon-action svg.i { width: 15px; height: 15px; }

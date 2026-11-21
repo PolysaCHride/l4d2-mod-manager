@@ -97,6 +97,23 @@ class TestToModContract(unittest.TestCase):
         # 没有归属时是空串，不是 None —— 前端用 === '' 判断
         self.assertEqual(self.api._to_mod(self._rec())["collection"], "")
 
+    def test_collection_derived_from_store_not_record(self):
+        """归属以 collections 表为准，不信记录上的 collection 字段。
+
+        真实库 200 条记录的 collection **全是空串**（重扫会把它抹掉），
+        而 collections 表里 6 条归属是完好的。只信记录字段的话，
+        合集在界面上永远不会出现 —— 这是 A-1 一直「看不见」的真正原因。
+        """
+        idx = {"a.vpk": "ws_1"}
+        rec = self._rec(file="a.vpk", collection="")
+        self.assertEqual(self.api._to_mod(rec, idx)["collection"], "ws_1")
+
+    def test_record_collection_still_works_without_index(self):
+        """索引里没有时退回记录值（刚下载、还没重扫的窗口期）。"""
+        rec = self._rec(file="b.vpk", collection="ws_2")
+        self.assertEqual(self.api._to_mod(rec, {})["collection"], "ws_2")
+        self.assertEqual(self.api._to_mod(rec)["collection"], "ws_2")
+
 
 
     def test_added_uses_added_at(self):
@@ -170,8 +187,33 @@ class TestBootstrapShape(unittest.TestCase):
     def test_bootstrap_keys(self):
         r = Api().bootstrap()
         self.assertTrue(r.get("ok"))
-        for k in ("mods", "settings", "stats", "game", "paths", "version"):
+        for k in ("mods", "settings", "stats", "game", "paths", "version", "collections"):
             self.assertIn(k, r, "bootstrap 缺字段：%s" % k)
+
+    def test_bootstrap_collections_shape(self):
+        """合集表是 {cid: {name, workshop_id, files}}，前端按 cid 直接用。"""
+        r = Api().bootstrap()
+        cols = r["collections"]
+        self.assertIsInstance(cols, dict)
+        for cid, info in cols.items():
+            self.assertTrue(cid.startswith("ws_"), "合集 ID 形如 ws_<数字>：%r" % cid)
+            for k in ("name", "workshop_id", "files"):
+                self.assertIn(k, info, "合集 %s 缺字段 %s" % (cid, k))
+            self.assertIsInstance(info["files"], list)
+            self.assertIsInstance(info["workshop_id"], str)
+
+    def test_collection_members_resolve_into_mods(self):
+        """合集里的文件必须能在 mods 里找到归属（两条数据源对得上）。"""
+        r = Api().bootstrap()
+        by_file = {m["file"]: m for m in r["mods"]}
+        for cid, info in r["collections"].items():
+            for f in info["files"]:
+                m = by_file.get(f)
+                if m is None:
+                    continue      # 合集里有已删除的部件是正常的
+                self.assertEqual(m["collection"], cid,
+                                 "%s 属于 %s，但前端拿到的归属是 %r"
+                                 % (f, cid, m["collection"]))
 
     def test_bootstrap_stats_match_mods(self):
         r = Api().bootstrap()

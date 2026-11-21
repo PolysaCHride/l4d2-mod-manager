@@ -114,6 +114,12 @@
     // 游戏运行状态是否「检测失败」而非「确实没运行」。
     // true 时禁止所有写入 —— 检测失败不等于没运行，见 HANDOFF §7.2。
     gameUnknown: false,
+    // 合集表 {cid: {name, workshop_id, files}}，bootstrap 的 collections 填入。
+    // 纯展示用：合集不参与启用/停用判定（用户裁定：合集 = 展示分组）。
+    collections: {},
+    // 详情下方「更多」折叠块是否展开。跨重渲染保留，
+    // 否则拨一下开关就会把它收回去。
+    moreOpen: false,
   };
 
   const $ = (sel, root = document) => root.querySelector(sel);
@@ -557,6 +563,52 @@
     renderInspector();
   }
 
+  /** 模组详情下方「更多」折叠块。
+
+      目前只放「合集」：**纯展示分组，不参与启用/停用判定**
+      （用户裁定，见 HANDOFF §6.5）。真实库里 The Bloody Moors 的 5 个
+      部件标题、分类、物品**完全一样**，只有体积和工坊 ID 不同 ——
+      没有这张表，用户根本分不清这 5 条是同图的不同部件。
+
+      没有合集的模组不渲染这个块：200 条里只有 6 条有归属，
+      给另外 194 条都挂一个空的「更多」纯属噪音。
+  */
+  function renderMoreBlock(m) {
+    const coll = m.coll ? state.collections[m.coll] : null;
+    if (!coll) return '';
+
+    const files = coll.files || [];
+    const parts = files.map((f) => {
+      const mm = MODS.find((x) => x.file === f);
+      const cur = !!(mm && mm.id === m.id);
+      const label = mm ? (mm.alias || mm.name) : f;
+      const running = !!(mm && mm.enabled);
+      return `<li class="coll-part${cur ? ' cur' : ''}${mm ? '' : ' gone'}"`
+        + (mm ? ` data-part="${esc(mm.id)}" role="button" tabindex="0"` : '')
+        + ` title="${esc(f)}${mm ? '' : '（已不在库中）'}">`
+        + `<i class="coll-dot${running ? ' on' : ''}"></i>`
+        + `<span class="coll-part-name">${esc(label)}</span>`
+        // 同一张图的部件标题完全一样，体积是唯一能区分它们的字段
+        + `<span class="coll-part-size">${mm ? esc(fmtSize(mm.size)) : ''}</span>`
+        + (cur ? '<span class="coll-here">当前</span>' : '')
+        + '</li>';
+    }).join('');
+
+    return `<details class="ins-more"${state.moreOpen ? ' open' : ''}>
+        <summary>更多<span class="more-hint">合集 · ${files.length} 个部件</span></summary>
+        <div class="more-body">
+          <div class="coll-head">
+            <span class="coll-title">${esc(coll.name || '未命名合集')}</span>
+            ${coll.workshop_id
+              ? `<button class="link-btn" type="button" id="insCollWs">工坊页</button>` : ''}
+          </div>
+          <ul class="coll-parts">${parts}</ul>
+          <p class="more-note">同名部件靠这张表区分：同一张图的多个 VPK 要一起启用才完整。
+          合集只是展示分组，管理器不会因为它自动启停、也不替你判断冲突。</p>
+        </div>
+      </details>`;
+  }
+
   // ---------------------------------------------------------------- render: inspector
   function renderInspector() {
     const m = selected();
@@ -611,6 +663,8 @@
           + `<span class="v">${isRaw ? html : esc(v)}</span></div>`).join('')}
       </div>
 
+      ${renderMoreBlock(m)}
+
       <div class="inspector-actions">
         <button class="icon-action" type="button" id="insAlias" title="设置别名" aria-label="设置别名">${icon('tag')}</button>
         <button class="icon-action" type="button" id="insFolder" title="打开文件夹" aria-label="打开文件夹">${icon('folder')}</button>
@@ -619,7 +673,6 @@
           <button class="icon-action" type="button" id="insMore" title="更多操作" aria-label="更多操作" aria-expanded="false">${icon('more')}</button>
           <div class="more-menu" id="insMoreMenu" hidden>
             <button type="button" data-more="category">修改分类</button>
-            ${m.cat === '地图' ? '<button type="button" data-more="collection">归入合集</button>' : ''}
           </div>
         </div>
         <span class="actions-spacer"></span>
@@ -718,39 +771,61 @@
         insp.addEventListener('scroll', closeMore, { passive: true });
       }
     }
-    $$('[data-more]').forEach((b) => b.addEventListener('click', async () => {
+    // 菜单现在只剩「修改分类」一项。合集不是动作而是展示，
+    // 渲染在详情下方的「更多」里（renderMoreBlock）——
+    // 原来那条「归入合集」只弹一句「尚未迁移」，是假动作，已删。
+    const moreCatBtn = $('[data-more="category"]');
+    if (moreCatBtn) moreCatBtn.addEventListener('click', async () => {
       $('#insMoreMenu').hidden = true;
-      if (b.dataset.more === 'category') {
-        // 走真后端 library.set_category（会把 pinned 置 True，重扫不再覆盖）。
-        // 早期这里只弹「实际实现会打开分类选择对话框」—— 假动作。
-        const picked = await selectDialog({
-          title: '修改分类',
-          text: `为《${shown}》指定分类。手工指定后会标记为「已固定」，重扫不再改它。`,
-          options: CATEGORY_OPTIONS.map((c) => ({
-            value: c, label: c, hint: c === m.cat ? '当前' : '',
-          })),
-          confirm: '保存分类',
-        });
-        if (picked === null) return;
-        const res = await window.bridge.set_category(m.file, picked, m.item || '');
-        if (!res || !res.ok) {
-          await infoDialog({ title: '无法修改分类', tone: 'danger',
-                             text: (res && res.error) || '写入失败' });
-          return;
-        }
-        m.cat = picked;
-        renderFilters(); renderGrid(); renderInspector();
-        toast('分类已改为「' + picked + '」');
-      } else {
-        // 合集归属依赖 library 的 collections 结构，本期无前端入口，
-        // 明确告知而不是假装成功。
-        await infoDialog({
-          title: '归入合集',
-          text: '地图合集归属尚未迁移到新界面。旧界面里由下载流程按 '
-              + '「合集 ID → 多个 VPK」自动建立，不需要手工归入。',
-        });
+      // 走真后端 library.set_category（会把 pinned 置 True，重扫不再覆盖）。
+      const picked = await selectDialog({
+        title: '修改分类',
+        text: `为《${shown}》指定分类。手工指定后会标记为「已固定」，重扫不再改它。`,
+        options: CATEGORY_OPTIONS.map((c) => ({
+          value: c, label: c, hint: c === m.cat ? '当前' : '',
+        })),
+        confirm: '保存分类',
+      });
+      if (picked === null) return;
+      const res = await window.bridge.set_category(m.file, picked, m.item || '');
+      if (!res || !res.ok) {
+        await infoDialog({ title: '无法修改分类', tone: 'danger',
+                           text: (res && res.error) || '写入失败' });
+        return;
       }
-    }));
+      m.cat = picked;
+      renderFilters(); renderGrid(); renderInspector();
+      toast('分类已改为「' + picked + '」');
+    });
+
+    // 「更多」折叠块的展开状态要跨重渲染保留：
+    // 拨一下开关就会 renderInspector()，不记住的话刚展开的块会自己收回去。
+    const moreBox = $('.ins-more');
+    if (moreBox) {
+      moreBox.addEventListener('toggle', () => { state.moreOpen = moreBox.open; });
+    }
+
+    // 同合集的其它部件：点一下切到那条（纯导航，不改任何状态）
+    $$('.coll-part[data-part]').forEach((el) => {
+      const go = () => {
+        state.selectedId = el.dataset.part;
+        renderGrid(); renderInspector();
+      };
+      el.addEventListener('click', go);
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); }
+      });
+    });
+
+    const collWs = $('#insCollWs');
+    if (collWs) collWs.addEventListener('click', async () => {
+      const coll = state.collections[m.coll] || {};
+      const res = await window.bridge.open_workshop(coll.workshop_id || '');
+      if (!res || !res.ok) {
+        await infoDialog({ title: '无法打开合集页', tone: 'danger',
+                           text: (res && res.error) || '打开失败' });
+      }
+    });
 
     $('#insDelete').addEventListener('click', async () => {
       const ok = await confirmDialog({
@@ -828,6 +903,7 @@
     MODS = (res.mods || []).map(adapt);
     state.settings = res.settings || state.settings;
     state.version = res.version || state.version;
+    state.collections = res.collections || {};
     state.gameRunning = !!(res.game && res.game.running);
     // 后端在 is_l4d2_running() 抛异常时给 unknown=true。
     // 检测失败 ≠ 没在运行 —— 这时必须按「不能写」处理，否则游戏运行中
@@ -883,6 +959,8 @@
     const res = await window.bridge.bootstrap();
     if (res && res.ok) {
       MODS = (res.mods || []).map(adapt);
+      // 合集归属会随下载/删除变化，一并刷新，否则「更多 → 合集」会显示旧成员
+      state.collections = res.collections || state.collections;
       return true;
     }
     return false;

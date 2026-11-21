@@ -244,7 +244,7 @@ class Api(object):
 
     # ---------------------------------------------------------------- 数据转换
 
-    def _to_mod(self, rec):
+    def _to_mod(self, rec, coll_idx=None):
         """后端记录 → 前端 Mod 模型（见 bridge.js 的字段约定）。"""
         title = rec.get("title") or rec.get("file", "")
         category = rec.get("category", "") or "未分类"
@@ -283,15 +283,55 @@ class Api(object):
             # 没用过用户分类时为 None —— 前端据此决定要不要置灰展示。
             "autoCategory": rec.get("auto_category"),
             "autoItem": rec.get("auto_item"),
-            # 所属合集 ID（"ws_<数字>"）。只有地图多部件会用，没归属时为空。
-            "collection": rec.get("collection", "") or "",
+            # 所属合集 ID（"ws_<数字>"）。没有归属时为空串。
+            # 取值见 _collection_index()：**以 collections 表为准**，
+            # 记录上的 collection 字段只是一份会被重扫抹掉的缓存。
+            "collection": (coll_idx or {}).get(rec.get("file", ""))
+                          or rec.get("collection", "") or "",
         }
+
+    def _collection_index(self):
+        """vpk 文件名 → 所属合集 ID。
+
+        权威来源是 `store.collections()[cid]["files"]`。mod 记录上的
+        `collection` 字段只是一份冗余缓存 —— `_scan_one` 重扫时只保留
+        auto_* / title_locked / pinned，会把 collection 抹成空串。
+
+        这不是推测：真实库里 200 条记录的 `collection` 全是空，
+        而 collections 表里 6 条归属（1 + 5）完好无损。
+        只信记录字段的话，合集在界面上永远不会出现。
+        """
+        idx = {}
+        if self._store is None:
+            return idx
+        for cid, info in (self._store.collections() or {}).items():
+            for name in (info.get("files") or []):
+                idx[str(name)] = cid
+        return idx
+
+    def _collections_payload(self):
+        """合集表：`{cid: {name, workshop_id, files}}`，给前端做**纯展示**。
+
+        合集不参与启用/停用判定（用户裁定：合集 = 展示分组），
+        这里只把「有哪些合集、各含哪些文件」原样交出去。
+        """
+        out = {}
+        if self._store is None:
+            return out
+        for cid, info in (self._store.collections() or {}).items():
+            out[str(cid)] = {
+                "name": str(info.get("name") or ""),
+                "workshop_id": str(info.get("workshop_id") or ""),
+                "files": [str(f) for f in (info.get("files") or [])],
+            }
+        return out
 
     def _all_mods(self):
         self._ensure()
         if self._store is None:
             return []
-        return [self._to_mod(r) for r in self._store.mods().values()]
+        idx = self._collection_index()
+        return [self._to_mod(r, idx) for r in self._store.mods().values()]
 
     def _find(self, file_name):
         self._ensure()
@@ -330,6 +370,8 @@ class Api(object):
                 },
                 stats={"total": len(mods), "enabled": enabled},
                 game={"running": running, "unknown": game_check_failed},
+                # 合集表：模组详情里「更多 → 合集」用，纯展示。
+                collections=self._collections_payload(),
                 paths={
                     "addons": gp.addons_dir if gp else "",
                     "valid": bool(gp and gp.valid()),
