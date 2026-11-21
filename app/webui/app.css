@@ -538,7 +538,6 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 }
 .ins-more[open] > summary::before { transform: rotate(45deg); }
 .ins-more > summary:hover { color: #c8d3c6; }
-.more-hint { margin-left: auto; color: #4e564f; font-size: 8.5px; }
 .more-body { padding: 0 0 10px; }
 
 /* 「更多」里的子分类行：k/v 两端对齐，右侧一个「修改」文字按钮 */
@@ -549,10 +548,17 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .more-row .link-btn { margin-left: 0; }
-.more-note .link-btn { margin-left: 4px; }
+/* 子分类的值本身就是修改入口 —— 不再单挂一个「修改」按钮 */
+.more-row .v.as-btn {
+  background: transparent; border: 0; padding: 0;
+  font: inherit; color: #cfd8c9; text-align: right;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  cursor: pointer;
+}
+.more-row .v.as-btn:hover { color: var(--accent); }
+.more-row.coll-line { padding-top: 2px; }
+.more-row.coll-line .v { color: #68736a; }
 
-.coll-head { display: flex; align-items: baseline; gap: 8px; padding: 0 0 6px; }
-.coll-title { color: #cfd8c9; font-size: 10.5px; }
 .link-btn {
   margin-left: auto; padding: 0 5px;
   border: 1px solid #2b332c; border-radius: 3px; background: transparent;
@@ -579,7 +585,6 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 .coll-part.cur .coll-part-size { color: #6d7a6e; }
 .coll-here { flex: none; color: #68736a; font-size: 8.5px; }
 .more-note { margin: 8px 0 0; color: #5b655c; font-size: 8.5px; line-height: 1.65; }
-.more-note.dim { margin-top: 4px; color: #464d47; }
 .inspector-actions { margin-top: auto; padding-top: 2px; display: flex; align-items: center; gap: 3px; }
 .icon-action { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 4px; color: #7f8a80; }
 .icon-action svg.i { width: 15px; height: 15px; }
@@ -716,9 +721,17 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 }
 .sub-item:hover { background: #171c17; color: #e4ebdf; }
 .sub-item.active { background: #1c2317; color: var(--accent); }
-.sub-empty { margin: 6px 8px; color: #5b655c; font-size: 9px; }
-.sub-list::-webkit-scrollbar { width: 8px; }
-.sub-list::-webkit-scrollbar-thumb { background: #2b332c; border-radius: 4px; }
+.sub-item.is-muted { color: #5b655c; }
+.sub-item.is-create { color: #7d8a7e; }
+.sub-item.is-create:hover { color: var(--accent); }
+/* 「新建」点开后在原位换成输入框 */
+.sub-input { margin: 2px 0; width: 100%; }
+/* 细滚动条，去掉浅色轨道 —— 列表本身已经有一圈边框，不需要再抢注意力 */
+.sub-list { scrollbar-width: thin; scrollbar-color: #2b332c transparent; }
+.sub-list::-webkit-scrollbar { width: 6px; }
+.sub-list::-webkit-scrollbar-track { background: transparent; }
+.sub-list::-webkit-scrollbar-thumb { background: #2b332c; border-radius: 3px; }
+.sub-list::-webkit-scrollbar-thumb:hover { background: #3a443b; }
 /* 单选列表（分类选择等）：滚动区 + 与 dlg-row 一致的视觉节奏 */
 .dlg-choices {
   margin-top: 10px; max-height: 300px; overflow-y: auto;

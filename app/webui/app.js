@@ -316,65 +316,94 @@
     });
   }
 
-  /** 子分类选择器：**第一栏是输入框（= 新建）**，下面是可滚动的现有子分类。
+  /** 子分类选择器：一个列表，三种行。
 
-      为什么不是纯输入框：地图有 70+ 个子分类，靠回忆手打几乎不可能；
-      但用户又必须能新建 —— 所以「输入框 + 可滚动列表」合在一个对话框里。
-      返回最终值（已 trim，空串 = 不细分）；取消返回 null。
+      [不细分]        （只在当前有子分类时出现）
+      现有子分类…     点一个就选中
+      ＋ 新建子分类    点开才出现输入框，回车即新建
+
+      只有「保存」一个按钮 —— X / Esc / 点空白都是取消。
+      没有说明文字：列表本身说明了可以做什么。
   */
-  function subItemDialog({ title, text = '', value = '', options = [],
-                           placeholder = '新建子分类…', confirm = '保存分类' }) {
+  function subItemDialog({ title = '子分类', value = '', options = [], confirm = '保存' }) {
     return new Promise((resolve) => {
       let settled = false;
+      let pending = value;
       const finish = (v) => {
         if (settled) return;
         settled = true;
         resolve(v);
       };
-      const rows = options.map((o) => `
-        <button class="sub-item${o === value ? ' active' : ''}" type="button"
-                data-sub="${esc(o)}" title="${esc(o)}">${esc(o)}</button>`).join('');
-      const html = `<div class="dlg info" style="max-width:480px">
+      const row = (label, v, extra) => `<button class="sub-item${extra || ''}" `
+        + `type="button" data-sub="${esc(v)}">${esc(label)}</button>`;
+      // 「＋ 新建」固定第一行：它是最常用的动作，不能要求先滚动才找得到。
+      // 「不细分」紧随其后（只在当前有值时出现），剩下的名字按名称排。
+      const rows = options.map((o) => row(o, o, o === value ? ' active' : '')).join('');
+      const html = `<div class="dlg info" style="max-width:420px">
         <div class="dlg-head"><span class="dot"></span><h4>${esc(title)}</h4>
           <button class="dlg-close" type="button" data-btn="close" aria-label="关闭">${icon('x')}</button></div>
-        <div class="dlg-body">${text ? `<p class="dlg-text">${esc(text)}</p>` : ''}
-          <input class="dlg-input" id="dlgInput" type="text" value="${esc(value)}"
-                 placeholder="${esc(placeholder)}" autocomplete="off" spellcheck="false">
-          <div class="sub-list" id="subList" role="listbox" aria-label="现有子分类">
-            ${rows || '<p class="sub-empty">还没有子分类，直接在上面输入即新建。</p>'}
+        <div class="dlg-body">
+          <div class="sub-list" id="subList" role="listbox" aria-label="子分类">
+            <button class="sub-item is-create" type="button" id="subCreate">＋ 新建子分类</button>
+            ${value ? row('不细分', '', ' is-muted') : ''}
+            ${rows}
           </div>
         </div>
         <div class="dlg-foot">
-          <button class="btn ghost" type="button" data-btn="0">取消</button>
           <button class="btn primary" type="button" data-btn="1">${esc(confirm)}</button>
         </div></div>`;
       // 遮罩 / ESC 关闭 → 解析为取消
       openModal(html, { onClose: () => finish(null) });
 
-      const input = $('#dlgInput');
-      const active = $('#subList .sub-item.active');
-      if (active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest' });
-      if (input) {
+      const list = $('#subList');
+
+      const select = (btn) => {
+        pending = btn.dataset.sub;
+        $$('#subList .sub-item').forEach((x) => {
+          x.classList.toggle('active', x === btn);
+        });
+      };
+      $$('#subList .sub-item[data-sub]').forEach((b) => {
+        b.addEventListener('click', () => select(b));
+      });
+
+      // 「新建」点开 → 在同一个位置换成输入框
+      $('#subCreate').addEventListener('click', () => {
+        const createBtn = $('#subCreate');
+        const input = document.createElement('input');
+        input.className = 'dlg-input sub-input';
+        input.id = 'dlgInput';
+        input.type = 'text';
+        input.placeholder = '子分类名';
+        input.autocomplete = 'off';
+        input.spellcheck = false;
+        createBtn.replaceWith(input);
         input.focus();
-        input.select();
+        let confirmed = false;
+        const commit = () => {
+          confirmed = true;
+          pending = input.value.trim();
+          finish(pending);
+          closeModal(false);
+        };
         input.addEventListener('keydown', (e) => {
           if (e.key === 'Enter') {
             e.preventDefault();
-            finish(input.value.trim());
-            closeModal(false);
+            commit();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();     // 别让全局 Esc 把整个弹窗关掉
+            input.replaceWith(createBtn);
           }
         });
-      }
-      $$('#subList .sub-item').forEach((b) => b.addEventListener('click', () => {
-        if (input) input.value = b.dataset.sub;
-        $$('#subList .sub-item').forEach((x) => {
-          x.classList.toggle('active', x === b);
+        // 切走焦点就把输入过的值留着（不提交），避免「打了字又点保存」丢内容
+        input.addEventListener('blur', () => {
+          if (!confirmed) pending = input.value.trim();
         });
-        if (input) input.focus();
-      }));
+      });
+
       $$('#modal-host [data-btn]').forEach((b) => b.addEventListener('click', () => {
-        const el = $('#dlgInput');
-        finish(b.dataset.btn === '1' ? (el ? el.value.trim() : '') : null);
+        finish(b.dataset.btn === '1' ? pending : null);
         closeModal(false);
       }));
     });
@@ -691,13 +720,11 @@
     const oldSub = displayItem(m, state.collections);
 
     const picked = await selectDialog({
-      title: '修改分类',
-      text: `为《${shown}》指定一级分类，下一步再给子分类。\n\n`
-          + '手工指定后会标记为「已固定」，重扫不再改它。',
+      title: '分类',
       options: CATEGORY_OPTIONS.map((c) => ({
         value: c, label: c, hint: c === m.cat ? '当前' : '',
       })),
-      confirm: '下一步：子分类',
+      confirm: '子分类',
     });
     if (picked === null) return;
 
@@ -705,18 +732,11 @@
     const existing = subItemsOf(picked, MODS, state.collections);
 
     const item = await subItemDialog({
-      title: '子分类',
-      text: `《${shown}》的一级分类是「${picked}」。\n\n`
-          + '第一栏可以直接输入新子分类；下面列出该分类下已有的子分类，'
-          + '点一个就选它。留空 = 不细分。'
-          + (existing.length
-              ? `\n\n「${picked}」下共有 ${existing.length} 个子分类。`
-              : ''),
+      // 标题就是一级分类名 —— 不用再写「你正在给 XX 选子分类」这种句子
+      title: picked,
       // 换了分类就不要再沿用旧的子分类（旧值多半属于别的分类）
       value: picked === oldCat ? oldSub : '',
       options: existing,
-      placeholder: '新建子分类…',
-      confirm: '保存分类',
     });
     if (item === null) return;
 
@@ -736,32 +756,6 @@
     toast(item ? `分类已改为「${picked} / ${item}」` : `分类已改为「${picked}」`);
   }
 
-  /** 把子分类归回工坊合集名（用户改过之后的反悔入口）。 */
-  async function revertToCollection(m) {
-    const coll = m.coll ? state.collections[m.coll] : null;
-    const name = coll ? (coll.name || '').trim() : '';
-    if (!name) return;
-    const ok = await confirmDialog({
-      title: '归回工坊合集',
-      tone: 'question',
-      text: `把《${displayTitle(m)}》的子分类改回工坊合集名「${name}」？\n\n`
-          + '只改这个模组的分类字段，不会改动合集本身。',
-      confirm: '归回',
-    });
-    if (!ok) return;
-    const res = await window.bridge.set_category(m.file, m.cat, name);
-    if (!res || !res.ok) {
-      await infoDialog({ title: '无法归回', tone: 'danger',
-                         text: (res && res.error) || '写入失败' });
-      return;
-    }
-    if (!m.pinned) { m.autoCat = m.cat; m.autoItem = m.item || ''; }
-    m.pinned = true;
-    m.item = name;
-    renderFilters(); renderGrid(); renderInspector();
-    toast('子分类已归回合集「' + name + '」');
-  }
-
   /** 模组详情下方「更多」折叠块。
 
       **始终渲染**（用户要求）：200 条里只有 6 条属于合集，但「没有合集」
@@ -774,29 +768,17 @@
   function renderMoreBlock(m) {
     const coll = m.coll ? state.collections[m.coll] : null;
     const files = coll ? (coll.files || []) : [];
-
-    // 摘要只在真有合集时出现；没有合集就别在折叠条上写「合集 · 0 个部件」
-    const hint = coll ? `<span class="more-hint">合集 · ${files.length} 个部件</span>` : '';
-
-    // 子分类：用户只看到「分类 → 子分类」一套层级。地图下它就是合集名，
-    // item 为空时只读回落到合集名（不写库）。
     const sub = displayItem(m, state.collections);
-    const collName = coll ? (coll.name || '').trim() : '';
-    const differs = !!(collName && sub && sub !== collName);
+
+    // 子分类行：值本身就是修改入口（不再单挂一个「修改」按钮）
     let body = `<div class="more-row">
         <span class="k">子分类</span>
-        <span class="v" title="${esc(sub || '未指定')}">${esc(sub || '未指定')}</span>
-        <button class="link-btn" type="button" id="insEditSub">修改</button>
+        <button class="v as-btn" type="button" id="insSub"
+          title="修改子分类">${esc(sub || '未指定')}</button>
       </div>`;
-    if (differs) {
-      body += `<p class="more-note">当前按用户值「${esc(sub)}」显示，与工坊合集名
-        「${esc(collName)}」不同。<button class="link-btn" type="button"
-        id="insRevertColl">归回工坊合集</button></p>`;
-    }
 
     if (!coll) {
-      body += `<p class="more-note dim">不属于任何合集。合集在「导入工坊合集」时
-        随下载一起建立，这里不提供手工归组 —— 归属请用上面的子分类。</p>`;
+      body += '<p class="more-note">不属于任何合集</p>';
     } else {
       const parts = files.map((f) => {
         const mm = MODS.find((x) => x.file === f);
@@ -813,18 +795,17 @@
           + (cur ? '<span class="coll-here">当前</span>' : '')
           + '</li>';
       }).join('');
-      body += `<div class="coll-head">
-            <span class="coll-title">${esc(coll.name || '未命名合集')}</span>
+      body += `<div class="more-row coll-line">
+            <span class="k">合集</span>
+            <span class="v">${files.length} 个部件</span>
             ${coll.workshop_id
-              ? `<button class="link-btn" type="button" id="insCollWs">工坊页</button>` : ''}
+              ? '<button class="link-btn" type="button" id="insCollWs">工坊页</button>' : ''}
           </div>
-          <ul class="coll-parts">${parts}</ul>
-          <p class="more-note">同名部件靠这张表区分：同一张图的多个 VPK 要一起启用才完整。
-          合集只是展示分组，管理器不会因为它自动启停、也不替你判断冲突。</p>`;
+          <ul class="coll-parts">${parts}</ul>`;
     }
 
     return `<details class="ins-more"${state.moreOpen ? ' open' : ''}>
-        <summary>更多${hint}</summary>
+        <summary>更多</summary>
         <div class="more-body">${body}</div>
       </details>`;
   }
@@ -920,8 +901,7 @@
         const ok = await confirmDialog({
           title: '恢复自动分类',
           tone: 'question',
-          text: `把《${shown}》的分类恢复成管理器识别的「${autoCatText}」？\n\n`
-              + '恢复后这个模组不再"已固定"，以后重扫会重新接管它的分类。',
+          text: `把《${shown}》的分类恢复成「${autoCatText}」？`,
           confirm: '恢复',
         });
         if (!ok) return;
@@ -939,13 +919,12 @@
 
     $('#insAlias').addEventListener('click', async () => {
       // 三层兜底里的第一层：用户自定义标题。留空 = 清掉别名，回到 title/文件名。
+      // 没有说明文字：placeholder 就是原标题，输入框本身就是「改成什么」
       const value = await textDialog({
-        title: '自定义标题',
-        text: `为《${shown}》设一个更好认的名字。留空则恢复原始标题。\n\n`
-            + `原始标题：${m.name}\n文件：${m.file}`,
+        title: '标题',
         value: m.alias || '',
-        placeholder: m.name,
-        confirm: '保存标题',
+        placeholder: m.name || m.file,
+        confirm: '保存',
       });
       if (value === null) return;
       const res = await window.bridge.set_alias(m.file, value);
@@ -1016,11 +995,9 @@
       editCategory(m);
     });
 
-    // 「更多」里的子分类入口与归回按钮
-    const editSubBtn = $('#insEditSub');
-    if (editSubBtn) editSubBtn.addEventListener('click', () => editCategory(m));
-    const revertBtn = $('#insRevertColl');
-    if (revertBtn) revertBtn.addEventListener('click', () => revertToCollection(m));
+    // 「更多 → 子分类」的值本身就是修改入口
+    const subBtn = $('#insSub');
+    if (subBtn) subBtn.addEventListener('click', () => editCategory(m));
 
     // 「更多」折叠块的展开状态要跨重渲染保留：
     // 拨一下开关就会 renderInspector()，不记住的话刚展开的块会自己收回去。

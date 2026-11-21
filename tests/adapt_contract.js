@@ -313,6 +313,18 @@ check('按名称排序（不是按数量）', () => {
      ['Alpha', 'Mid', 'The Bloody Moors', 'Zeta']);
 });
 
+check('中文在前、英文在后（中文内部按拼音）', () => {
+  // 用户明确要的排序：中文优先。localeCompare(zh) 在 Node 与 WebView2 里一致，
+  // 这条断言把「中文在前」钉住，避免以后换成普通字符串比较就悄悄变了。
+  eq(app.subItemsOf('地图', [
+    { cat: '地图', item: 'Zeta' },
+    { cat: '地图', item: '地心引力' },
+    { cat: '地图', item: 'Alpha' },
+    { cat: '地图', item: '档案：零' },
+    { cat: '地图', item: '广州' },
+  ], {}), ['档案：零', '地心引力', '广州', 'Alpha', 'Zeta']);
+});
+
 check('去重', () => {
   const list = app.subItemsOf('地图', SUBS_MODS, COLLS);
   eq(list.filter((x) => x === 'Alpha').length, 1);

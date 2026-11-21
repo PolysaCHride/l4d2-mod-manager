@@ -156,7 +156,8 @@ window.__coll = null;
       ok(sizes.filter(Boolean).length === inLib,
          '有 ' + inLib + ' 个部件在库里，但只有 ' + sizes.filter(Boolean).length + ' 行显示了体积');
       out.sizes = sizes;
-      ok(/合集 · \d+ 个部件/.test(out.summary), '折叠标题没显示合集摘要：' + out.summary);
+      // 折叠标题只剩「更多」——摘要文字被砍掉了（信息在展开后的「合集 N 个部件」行）
+      ok(out.summary.trim() === '更多', '折叠标题应只有「更多」：' + out.summary);
 
       // 展开状态要能跨重渲染保留。
       // ⚠️ 这里**不能**去点启用开关：那会真写 addonlist.txt。
@@ -175,99 +176,121 @@ window.__coll = null;
       ok(out.staysOpen, '重渲染后「更多」被收起来了');
     }
 
-    // ── 子分类编辑（合集统一为子分类，§5）──
-    // 会真的写一次 library.json（改子分类 → 校验 → 归回），最后还原 pinned。
-    const subBtn = document.querySelector('#insEditSub');
+    // ── 子分类（合集统一为子分类，§5）──
+    // 会真的写几次 library.json（改子分类 → 新建 → 归回 → 清空），最后还原。
+    const collName = (cols[withColl.collection] || {}).name;
+    const subBtn = document.querySelector('#insSub');
     out.hasSubRow = !!subBtn;
     ok(!!subBtn, '「更多」里没有子分类行');
     if (subBtn) {
-      subBtn.click();
-      await sleep(500);
-      // 一级分类对话框：选中当前分类后点「下一步」
-      const catInput = [...document.querySelectorAll('#modal-host input[name="dlgChoice"]')]
-        .find((i) => i.value === withColl.category);
-      ok(!!catInput, '分类对话框里没有当前分类选项：' + withColl.category);
-      if (catInput) catInput.click();
-      const next1 = [...document.querySelectorAll('#modal-host [data-btn]')]
-        .find((b) => b.dataset.btn === '1');
-      next1.click();
-      await sleep(500);
+      ok(subBtn.textContent.trim() === collName,
+         '子分类应显示合集名，实际 ' + JSON.stringify(subBtn.textContent.trim()));
 
-      const subInput = document.querySelector('#dlgInput');
-      ok(!!subInput, '第二步没有子分类输入框');
-      ok(subInput.value === (cols[withColl.collection] || {}).name,
-         '子分类没有预填当前合集名：' + JSON.stringify(subInput.value));
+      const openPicker = async () => {
+        document.querySelector('#insSub').click();
+        await sleep(500);
+        const catInput = [...document.querySelectorAll('#modal-host input[name="dlgChoice"]')]
+          .find((i) => i.value === withColl.category);
+        ok(!!catInput, '分类对话框里没有当前分类选项：' + withColl.category);
+        if (catInput) catInput.click();
+        const next1 = [...document.querySelectorAll('#modal-host [data-btn]')]
+          .find((b) => b.dataset.btn === '1');
+        next1.click();
+        await sleep(500);
+        return document.querySelector('#subList');
+      };
+      const savePicker = async () => {
+        const btn = [...document.querySelectorAll('#modal-host [data-btn]')]
+          .find((b) => b.dataset.btn === '1');
+        btn.click();
+        await sleep(1000);
+      };
 
-      // 输入框在第一栏：它必须排在列表前面（DOM 顺序）
-      const body = document.querySelector('#modal-host .dlg-body');
-      const firstField = body.querySelector('#dlgInput');
-      const list = body.querySelector('#subList');
-      ok(!!list, '选择器里没有现有子分类列表');
-      ok(firstField && list && (firstField.compareDocumentPosition(list)
-         & Node.DOCUMENT_POSITION_FOLLOWING), '输入框没有排在列表前面');
+      const list = await openPicker();
+      ok(!!list, '选择器里没有子分类列表');
 
-      // 列表可滚动、且内容真的超过高度
-      const rows = [...list.querySelectorAll('.sub-item')];
+      // 「新建」是列表里的一行，点开才出现输入框
+      ok(!document.querySelector('#dlgInput'), '输入框不该一开始就出现（点「新建」才出现）');
+      const create = list.querySelector('#subCreate');
+      ok(!!create, '列表里没有「新建子分类」行');
+      ok(!create.classList.contains('is-muted') && create.classList.contains('is-create'),
+         '「新建」行没有和其它行区分开');
+      ok(list.firstElementChild === create,
+         '「新建」必须是第一行（否则要滚动才找得到）');
+
+      // 列表行 = 现有子分类（+ 当前有值时的「不细分」），按名称排序
+      const rows = [...list.querySelectorAll('.sub-item[data-sub]')];
       out.subOptions = rows.length;
       ok(rows.length > 0, '列表是空的（该分类下明明有子分类）');
+      const names = rows.map((r) => r.dataset.sub).filter(Boolean);
+      out.subSorted = JSON.stringify(names)
+        === JSON.stringify(names.slice().sort((a, b) => a.localeCompare(b, 'zh')));
+      ok(out.subSorted, '子分类没有按名称排序');
+      out.hasClearRow = !!list.querySelector('.sub-item.is-muted');
+      ok(out.hasClearRow, '当前有子分类时应该有一条「不细分」');
+
+      // 可滚动
       const cs = getComputedStyle(list);
       out.subScrollable = (cs.overflowY === 'auto' || cs.overflowY === 'scroll');
       ok(out.subScrollable, '列表不是可滚动的：overflowY=' + cs.overflowY);
       ok(list.scrollHeight > list.clientHeight,
-         '列表内容没有超过高度，滚动条验证不了（' + list.scrollHeight + ' vs ' + list.clientHeight + '）');
+         '列表内容没超过高度，滚动验证不了（' + list.scrollHeight + ' vs ' + list.clientHeight + '）');
 
-      // 列表按名称排序
-      const names = rows.map((r) => r.dataset.sub);
-      const sorted = names.slice().sort((a, b) => a.localeCompare(b, 'zh'));
-      out.subSorted = JSON.stringify(names) === JSON.stringify(sorted);
-      ok(out.subSorted, '子分类没有按名称排序');
-
-      // 点现有项 → 填进输入框
-      const pick = rows.find((r) => r.dataset.sub !== subInput.value);
-      if (pick) {
-        pick.click();
-        await sleep(150);
-        out.pickedValue = subInput.value;
-        ok(out.pickedValue === pick.dataset.sub,
-           '点现有子分类没有填进输入框：' + JSON.stringify(out.pickedValue));
-        ok(pick.classList.contains('active'), '选中项没有高亮');
-      }
-
-      // 再改成一个新的名字（= 新建子分类）
+      // 点「新建」→ 输入框出现在列表里同一位置
+      create.click();
+      await sleep(250);
+      const input = document.querySelector('#dlgInput');
+      ok(!!input, '点「新建」后没有出现输入框');
+      ok(input.parentElement === list, '输入框没有放进列表里（应该和已有子分类放一起）');
+      ok(!document.querySelector('#subCreate'), '换出输入框后「新建」行应该消失');
       const setter = Object.getOwnPropertyDescriptor(
         window.HTMLInputElement.prototype, 'value').set;
-      setter.call(subInput, '沼泽测试');
-      subInput.dispatchEvent(new Event('input', { bubbles: true }));
-      const save2 = [...document.querySelectorAll('#modal-host [data-btn]')]
-        .find((b) => b.dataset.btn === '1');
-      save2.click();
-      await sleep(1000);
+      setter.call(input, '沼泽测试');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      await sleep(1200);
 
-      // 卡片标签应变成用户值、且不带 (x/x)
+      // 卡片标签变成用户值、且不带 (x/x)；「更多」里的子分类同步
       out.tagAfterEdit = (document.querySelector('.mod-card.selected .mod-coll') || {}).textContent || '';
       ok(out.tagAfterEdit === '沼泽测试',
-         '改完子分类后卡片标签不是用户值：' + JSON.stringify(out.tagAfterEdit));
-      out.revertBtn = !!document.querySelector('#insRevertColl');
-      ok(out.revertBtn, '与合集名不一致时没有「归回工坊合集」入口');
+         '新建子分类后卡片标签不是用户值：' + JSON.stringify(out.tagAfterEdit));
+      out.subAfterEdit = (document.querySelector('#insSub') || {}).textContent || '';
+      ok(out.subAfterEdit === '沼泽测试',
+         '「更多」里的子分类没同步：' + JSON.stringify(out.subAfterEdit));
 
-      // 归回
-      const rev = document.querySelector('#insRevertColl');
-      if (rev) {
-        rev.click();
-        await sleep(500);
-        const okBtn = [...document.querySelectorAll('#modal-host [data-btn]')]
-          .find((b) => b.dataset.btn === '1');
-        okBtn.click();
-        await sleep(1000);
-      }
+      // 归回：重开选择器 → 点合集名那一行 → 保存
+      await openPicker();
+      const back = [...document.querySelectorAll('#subList .sub-item[data-sub]')]
+        .find((r) => r.dataset.sub === collName);
+      ok(!!back, '列表里找不到合集名那一行：' + collName);
+      if (back) back.click();
+      await sleep(150);
+      ok(back.classList.contains('active'), '选中行没有高亮');
+      await savePicker();
       const b4 = await window.bridge.bootstrap();
       const m4 = b4.mods.find((x) => x.file === withColl.file);
       out.itemAfterRevert = m4 ? m4.item : null;
-      ok(out.itemAfterRevert === (cols[withColl.collection] || {}).name,
+      ok(out.itemAfterRevert === collName,
          '归回后 item 不是合集名：' + JSON.stringify(out.itemAfterRevert));
       const tagBack = (document.querySelector('.mod-card.selected .mod-coll') || {}).textContent || '';
       out.tagAfterRevert = tagBack;
       ok(/\(\d+\/\d+\)$/.test(tagBack), '归回后卡片标签没有恢复 (x/x)：' + JSON.stringify(tagBack));
+
+      // 「不细分」= 清空子分类
+      await openPicker();
+      const clearRow = document.querySelector('#subList .sub-item.is-muted');
+      ok(!!clearRow, '找不到「不细分」行');
+      if (clearRow) clearRow.click();
+      await sleep(150);
+      await savePicker();
+      const b6 = await window.bridge.bootstrap();
+      const m6 = b6.mods.find((x) => x.file === withColl.file);
+      out.itemAfterClear = m6 ? m6.item : null;
+      ok(out.itemAfterClear === '', '「不细分」没有把 item 清空：' + JSON.stringify(out.itemAfterClear));
+      // item 清空了，但这个模组属于合集 → 显示层按合集名回落（§5.3）。
+      out.subAfterClear = (document.querySelector('#insSub') || {}).textContent || '';
+      ok(out.subAfterClear === collName,
+         '清空后显示应回落到合集名：' + JSON.stringify(out.subAfterClear));
 
       // 「用户新建的子分类」在最后一个模组被移走后必须自动消失，
       // 而管理器自带的（The Bloody Moors 这些）不受影响。
@@ -366,14 +389,15 @@ def run(win):
     print("[coll] 详情：summary=%r title=%r 部件=%s 当前=%s 展开保留=%s"
           % (out.get("summary"), out.get("title"), out.get("parts"),
              out.get("current"), out.get("staysOpen")), flush=True)
-    print("[coll] 子分类：行=%s 改后卡片=%r 归回后=%r 归回按钮=%s 收尾清 pinned=%s"
-          % (out.get("hasSubRow"), out.get("tagAfterEdit"), out.get("tagAfterRevert"),
-             out.get("revertBtn"), not out.get("pinnedAfterCleanup")), flush=True)
-    print("[coll] 选择器：现有 %s 项 可滚动=%s 已排序=%s；树上按名排序=%s；"
+    print("[coll] 子分类：行=%s 新建后=%r 归回后=%r 清空后 item=%r/显示=%r 清 pinned=%s"
+          % (out.get("hasSubRow"), out.get("subAfterEdit"), out.get("itemAfterRevert"),
+             out.get("itemAfterClear"), out.get("subAfterClear"),
+             not out.get("pinnedAfterCleanup")), flush=True)
+    print("[coll] 选择器：现有 %s 项 可滚动=%s 已排序=%s 不细分行=%s；树上按名排序=%s；"
           "新建项自动清除=%s；自带项保留=%s；⋯ 已隐藏=%s"
           % (out.get("subOptions"), out.get("subScrollable"), out.get("subSorted"),
-             out.get("treeSorted"), out.get("autoCleared"), out.get("builtinKept"),
-             out.get("moreHidden")), flush=True)
+             out.get("hasClearRow"), out.get("treeSorted"), out.get("autoCleared"),
+             out.get("builtinKept"), out.get("moreHidden")), flush=True)
     errors = out.get("errors") or []
     if errors:
         for e in errors:
