@@ -28,6 +28,8 @@ from app.shell.fmt import fmt_size  # noqa: E402
 from app.shell.jobs import JobRunner  # noqa: E402
 
 APP_VERSION = "1.2.1"
+# 与 app/core/game.py 的 GAME_EXE 保持一致（core 冻结，只能抄一份常量）
+_GAME_EXE = "left4dead2.exe"
 REPO_SLUG = "PolysaCHride/l4d2-mod-manager"
 
 
@@ -41,65 +43,101 @@ def _err(message):
     return {"ok": False, "error": str(message)}
 
 
-_THUMB_CACHE = {}
+_THUMB_CACHE = {}      # (绝对路径, mtime) -> 给 <img src> 的 URL
+_THUMB_DIR = None      # data/thumb-cache，懒建
+
+
+def _file_url(path):
+    """绝对路径 → 百分号编码过的 file:// URL。
+
+    必须用 Path.as_uri()：手拼 "file:///" + path 遇到中文/空格会 404
+    （实测：22 张里唯一加载失败的那张就是路径没编码）。
+    """
+    try:
+        from pathlib import Path
+        return Path(path).resolve().as_uri()
+    except Exception:
+        return ""
+
+
+def _thumb_cache_dir():
+    global _THUMB_DIR
+    if _THUMB_DIR is None:
+        _THUMB_DIR = os.path.join(app_paths.data_dir(), "thumb-cache")
+        try:
+            os.makedirs(_THUMB_DIR, exist_ok=True)
+        except OSError:
+            pass
+    return _THUMB_DIR
+
+
+def _cached_thumb(path, mtime, size, max_bytes=400 * 1024):
+    """大图压成 320×180 存到 data/thumb-cache，返回缓存文件路径（失败返回 ""）。
+
+    缓存键 = 路径 + mtime + 大小 的哈希：换图或改图会自动失效。
+    这一步只在**第一次**遇到这张图时发生；之后只是 stat 一下。
+    （2026-11-21 之前是每次 bootstrap 都现压——71 张大图，光压图就要 2s+。）
+    """
+    import hashlib
+    d = _thumb_cache_dir()
+    if not d:
+        return ""
+    key = hashlib.sha1(("%s|%d|%d" % (path, mtime, size)).encode("utf-8")).hexdigest()[:16]
+    out = os.path.join(d, key + ".jpg")
+    if os.path.isfile(out) and os.path.getsize(out) > 0:
+        return out
+    try:
+        from PIL import Image
+        # with 必须用：bootstrap 会对每条记录跑一遍，不关闭句柄会攒一堆
+        # 未释放的文件描述符（Windows 上还会锁住预览图）。
+        with Image.open(path) as im:
+            im.thumbnail((320, 180))
+            if im.mode not in ("RGB", "L"):
+                im = im.convert("RGB")
+            tmp = out + ".tmp"
+            im.save(tmp, format="JPEG", quality=78)
+        os.replace(tmp, out)
+        return out
+    except Exception:
+        return ""
 
 
 def _thumb_url(preview_path, max_bytes=400 * 1024):
-    """把本地预览图转成 data URI。
+    """预览图 → 给 `<img src>` 的 URL（file:// 或空串）。
 
-    为什么不直接用 file://：页面本身是 file:// 协议，
-    跨盘符（D: 页面 → E: 图片）会被 WebView2 的策略拦截，
-    表现为全部裂图。data URI 没有这个限制，且体积可控。
+    **2026-11-21 改**：不再转 base64。原来的依据是「跨盘 file:// 会被
+    WebView2 拦截」，实测不成立 —— 页面在 D:、图片在 E:，22 张跨盘图
+    21 张直载成功（唯一的失败是路径没做百分号编码）。
+
+    base64 的代价是 `bootstrap` 一次要过 18MB 的桥（实测 3.1s / 18.2MB）。
+    现在只传 URL：大图（> 400KB）先压成 320×180 落盘缓存，其余直接给原图 URL。
+    渲染端 `loading="lazy"`，只有看得见的卡片才会真的读盘。
     """
     if not preview_path:
         return ""
     p = os.path.abspath(preview_path)
     if not os.path.isfile(p):
         return ""
+    try:
+        mtime = os.path.getmtime(p)
+        size = os.path.getsize(p)
+    except OSError:
+        return ""
 
-    key = (p, os.path.getmtime(p))
+    key = (p, mtime, size)
     cached = _THUMB_CACHE.get(key)
     if cached is not None:
         return cached
 
-    try:
-        size = os.path.getsize(p)
-        # 大图必须先压缩：JPEG 不能截断，截断出来就是坏图（浏览器裂图）。
-        # 没装 Pillow 时宁可不显示，也不要给出坏图。
-        if size > max_bytes:
-            try:
-                from PIL import Image
-                import io
-                # 必须用 with：这个函数在 bootstrap 里会对**每一条**超过
-                # 阈值的记录跑一遍（真实库 200 条），不关闭句柄就会攒下
-                # 200 个未释放的文件描述符，Windows 上还会锁住预览图。
-                with Image.open(p) as im:
-                    im.thumbnail((320, 180))
-                    if im.mode not in ("RGB", "L"):
-                        im = im.convert("RGB")
-                    buf = io.BytesIO()
-                    im.save(buf, format="JPEG", quality=78)
-                    data = buf.getvalue()
-                uri = "data:image/jpeg;base64," + __import__("base64").b64encode(data).decode("ascii")
-                _THUMB_CACHE[key] = uri
-                return uri
-            except ImportError:
-                # 没装 Pillow：返回空串让前端画占位，不要给截断的坏 JPEG
-                print("[shell] 缺少 Pillow，跳过超过 %dKB 的缩略图" % (max_bytes // 1024),
-                      file=sys.stderr)
-                return ""
-            except Exception:
-                return ""
-        with open(p, "rb") as f:
-            raw = f.read(max_bytes)
-        ext = os.path.splitext(p)[1].lower()
-        mime = {".png": "image/png", ".gif": "image/gif",
-                ".webp": "image/webp"}.get(ext, "image/jpeg")
-        uri = "data:%s;base64,%s" % (mime, __import__("base64").b64encode(raw).decode("ascii"))
-        _THUMB_CACHE[key] = uri
-        return uri
-    except Exception:
-        return ""
+    url = ""
+    if size > max_bytes:
+        # 大图：压成小图再给 URL，别让渲染端去解一张 8504×8504 的 JPEG
+        small = _cached_thumb(p, mtime, size, max_bytes)
+        url = _file_url(small) if small else _file_url(p)
+    else:
+        url = _file_url(p)
+    _THUMB_CACHE[key] = url
+    return url
 
 
 _WIKI_CACHE = {}
@@ -139,7 +177,7 @@ def _wiki_image_path(item, category):
 
 
 def _wiki_thumb(item, category):
-    """wiki 占位图的 data URI（跨盘 file:// 会被 WebView2 拦截，所以也要转 base64）。"""
+    """wiki 占位图的 file:// URL（同跨盘可直载，见 _thumb_url 的说明）。"""
     p = _wiki_image_path(item, category)
     if not p:
         return ""
@@ -147,14 +185,78 @@ def _wiki_thumb(item, category):
     cached = _WIKI_CACHE.get(key)
     if cached is not None:
         return cached
+    url = _file_url(p)
+    _WIKI_CACHE[key] = url
+    return url
+
+
+def _game_running_fast():
+    """用 Toolhelp 进程快照找 left4dead2.exe：~1ms。
+
+    `app/core/game.is_l4d2_running()` 走 `tasklist` 子进程，实测 **0.49s**，
+    占掉 bootstrap 之后剩下的九成时间。core 是冻结层不能改，所以在 shell
+    这边补一条快路径；**任何异常都返回 None**，让调用方退回 core 的实现，
+    不自己猜结果。
+    """
+    if os.name != "nt":
+        return None
     try:
-        with open(p, "rb") as f:
-            raw = f.read()
-        uri = "data:image/png;base64," + __import__("base64").b64encode(raw).decode("ascii")
-        _WIKI_CACHE[key] = uri
-        return uri
+        import ctypes
+        from ctypes import wintypes
+
+        TH32CS_SNAPPROCESS = 0x2
+        INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+
+        class PROCESSENTRY32(ctypes.Structure):
+            _fields_ = [
+                ("dwSize", wintypes.DWORD),
+                ("cntUsage", wintypes.DWORD),
+                ("th32ProcessID", wintypes.DWORD),
+                ("th32DefaultHeapID", ctypes.POINTER(ctypes.c_ulong)),
+                ("th32ModuleID", wintypes.DWORD),
+                ("cntThreads", wintypes.DWORD),
+                ("th32ParentProcessID", wintypes.DWORD),
+                ("pcPriClassBase", ctypes.c_long),
+                ("dwFlags", wintypes.DWORD),
+                ("szExeFile", ctypes.c_char * 260),
+            ]
+
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+        k32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+        k32.Process32First.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32)]
+        k32.Process32Next.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32)]
+        k32.CloseHandle.argtypes = [wintypes.HANDLE]
+
+        snap = k32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+        if not snap or snap == INVALID_HANDLE_VALUE:
+            return None
+        try:
+            entry = PROCESSENTRY32()
+            entry.dwSize = ctypes.sizeof(PROCESSENTRY32)
+            target = _GAME_EXE.lower().encode("ascii")
+            ok = k32.Process32First(snap, ctypes.byref(entry))
+            while ok:
+                if bytes(entry.szExeFile).split(b"\x00")[0].lower() == target:
+                    return True
+                ok = k32.Process32Next(snap, ctypes.byref(entry))
+            return False
+        finally:
+            k32.CloseHandle(snap)
     except Exception:
-        return ""
+        return None
+
+
+def _game_running():
+    """游戏是否在运行；返回 None 表示「检测失败」（调用方要按 unknown 处理）。"""
+    fast = _game_running_fast()
+    if fast is not None:
+        return fast
+    try:
+        from app.core import game as game_core
+        return bool(game_core.is_l4d2_running())
+    except Exception:
+        return None
 
 
 def _fmt_ago(ts):
@@ -350,15 +452,11 @@ class Api(object):
             enabled = sum(1 for m in mods if m["enabled"])
             gd = settings.get("game_dir", "")
             gp = self._game_paths
-            running = False
-            game_check_failed = False
-            try:
-                from app.core import game as game_core
-                running = bool(game_core.is_l4d2_running())
-            except Exception:
-                # 检测失败时不能当成「没运行」——那会让前端放行写入，
-                # 而游戏运行中写 addonlist.txt 会失败或损坏。
-                game_check_failed = True
+            # 检测失败时不能当成「没运行」——那会让前端放行写入，
+            # 而游戏运行中写 addonlist.txt 会失败或损坏。
+            state = _game_running()
+            running = bool(state)
+            game_check_failed = state is None
             return _ok(
                 mods=mods,
                 settings={

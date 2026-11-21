@@ -128,37 +128,96 @@ class TestToModContract(unittest.TestCase):
         rec = self._rec(added_at=0, mtime=888)
         self.assertEqual(self.api._to_mod(rec)["added"], 888)
 
-    def test_thumb_is_data_uri_or_empty(self):
-        """缩略图必须是 data URI 或空串 —— 不能是裸文件路径。
+    def test_thumb_is_file_url_or_empty(self):
+        """缩略图是 `file://` URL 或空串 —— 不再传 base64。
 
-        裸 file:// 路径在页面跨盘符时会被 WebView2 拦截，表现为全部裂图。
+        2026-11-21 实测推翻了原来的假设（「跨盘 file:// 会被 WebView2 拦截」）：
+        页面在 D:、图片在 E:，22 张跨盘图 21 张直载成功，唯一失败的
+        是路径没做百分号编码。改传 URL 后 bootstrap 从 18.2MB 降到 0.09MB。
 
-        注意（2026-11-20 起）：没有 mod 自带预览图时，会退回 assets/wiki 的
-        物品图/分类图（旧 UI 的四级兜底搬到新栈）。所以「无 preview」不等于
-        「thumb 为空」—— 只有 wiki 里也没有对应图时才是空串。
+        没有 preview 时会退回 assets/wiki；只有 wiki 里也没有时才空串。
         """
-        # 一个既无 preview、物品名和分类在 wiki 里都不存在的记录 → 空串
         rec = self._rec(preview="", category="绝对不存在的分类",
                         item="绝对不存在的物品")
-        thumb = self.api._to_mod(rec)["thumb"]
-        self.assertEqual(thumb, "")
+        self.assertEqual(self.api._to_mod(rec)["thumb"], "")
 
     def test_thumb_falls_back_to_wiki_asset(self):
-        """mod 无预览图时，应该退到 assets/wiki 的占位图（data URI）。"""
+        """mod 无预览图时，退回 assets/wiki 的占位图 URL。"""
         rec = self._rec(preview="", category="角色", item="Ellis")
         thumb = self.api._to_mod(rec)["thumb"]
-        self.assertTrue(
-            thumb.startswith("data:image/png;base64,"),
-            "应退回 wiki 物品图，实际是 %r" % (thumb[:60] or thumb))
+        self.assertTrue(thumb.startswith("file://"), "应退回 wiki 图：%r" % thumb[:60])
+        self.assertEqual(self.api._to_mod(rec)["thumb"], thumb, "同一张图要稳定")
 
-    def test_thumb_is_never_a_bare_path(self):
-        """任何情况下都不能把裸文件路径当 thumb 传给前端。"""
+    def test_thumb_never_bare_path(self):
+        """thumb 必须是带 scheme 的 URL —— 裸路径浏览器不认。"""
         for preview in ("", "E:\\nonexistent\\x.jpg", "/not/exist.png"):
             thumb = self.api._to_mod(
                 self._rec(preview=preview, category="角色", item="Ellis"))["thumb"]
-            self.assertFalse(
-                thumb.startswith(("E:", "C:", "/", "file:")),
-                "thumb 不能是裸路径：%r" % thumb[:60])
+            self.assertFalse(thumb.startswith(("E:", "C:", "/")),
+                             "thumb 不能是裸路径：%r" % thumb[:60])
+            if thumb:
+                self.assertTrue(thumb.startswith("file://"), thumb[:60])
+
+    def test_thumb_url_is_percent_encoded(self):
+        """非 ASCII 路径必须百分号编码，否则 WebView 加载 404。"""
+        from app.shell.api import _file_url
+        url = _file_url(os.path.join("D:\\项目\\x y\\角色.png"))
+        self.assertTrue(url.startswith("file:///"), url)
+        self.assertNotIn("项目", url, "中文必须编码")
+        self.assertIn("%20", url, "空格必须编码")
+
+    def test_large_preview_is_cached_once(self):
+        """超过 400KB 的图压成 320×180 落盘缓存，第二次直接命中。"""
+        import tempfile
+        from PIL import Image
+        from app.shell import api as api_mod
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        old_dir = api_mod._THUMB_DIR
+        api_mod._THUMB_DIR = tmp.name
+        self.addCleanup(setattr, api_mod, "_THUMB_DIR", old_dir)
+
+        src = os.path.join(tmp.name, "big.jpg")
+        # 纯色图会被 JPEG 压到几十 KB，必须用噪声才过得了 400KB 阈值
+        Image.frombytes("RGB", (1200, 800), os.urandom(1200 * 800 * 3)).save(
+            src, format="JPEG", quality=95)
+        self.assertGreater(os.path.getsize(src), 400 * 1024,
+                           "测试夹具不够大：%d" % os.path.getsize(src))
+
+        api_mod._THUMB_CACHE.clear()
+        self.addCleanup(api_mod._THUMB_CACHE.clear)
+        url1 = api_mod._thumb_url(src, max_bytes=400 * 1024)
+        self.assertTrue(url1.startswith("file://"), url1)
+        cache_files = [f for f in os.listdir(tmp.name)
+                       if f.endswith(".jpg") and f != "big.jpg"]
+        self.assertEqual(len(cache_files), 1, "大图应该生成一张缓存图")
+        self.assertIn(cache_files[0][:8], url1, "URL 应指向缓存文件")
+
+        api_mod._THUMB_CACHE.clear()
+        url2 = api_mod._thumb_url(src, max_bytes=400 * 1024)
+        self.assertEqual(url1, url2, "第二次应命中同一份缓存")
+
+    def test_small_preview_points_at_original(self):
+        """小图不压缩，直接给原图 URL（省一次解码）。"""
+        import tempfile
+        from PIL import Image
+        from app.shell import api as api_mod
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        old_dir = api_mod._THUMB_DIR
+        api_mod._THUMB_DIR = tmp.name
+        self.addCleanup(setattr, api_mod, "_THUMB_DIR", old_dir)
+
+        src = os.path.join(tmp.name, "small.jpg")
+        Image.new("RGB", (320, 180), (10, 10, 10)).save(src, format="JPEG")
+        api_mod._THUMB_CACHE.clear()
+        self.addCleanup(api_mod._THUMB_CACHE.clear)
+        url = api_mod._thumb_url(src)
+        self.assertTrue(url.startswith("file://"), url)
+        self.assertEqual([f for f in os.listdir(tmp.name) if f.endswith(".jpg")], ["small.jpg"],
+                         "小图不该生成缓存文件")
 
     def test_enabled_is_bool(self):
         """前端依赖严格的布尔值（用的是 !!x 和 ===）。"""

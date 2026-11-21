@@ -339,7 +339,7 @@
       // 「＋ 新建」固定第一行：它是最常用的动作，不能要求先滚动才找得到。
       // 「不细分」紧随其后（只在当前有值时出现），剩下的名字按名称排。
       const rows = options.map((o) => row(o, o, o === value ? ' active' : '')).join('');
-      const html = `<div class="dlg info" style="max-width:420px">
+      const html = `<div class="dlg info" style="max-width:560px">
         <div class="dlg-head"><span class="dot"></span><h4>${esc(title)}</h4>
           <button class="dlg-close" type="button" data-btn="close" aria-label="关闭">${icon('x')}</button></div>
         <div class="dlg-body">
@@ -656,6 +656,14 @@
     $$('[data-mod]').forEach((card) => {
       // 选中只改类名，不重建 DOM —— 否则单击后节点被替换，双击永远收不到第二次点击
       card.addEventListener('click', () => selectCard(card.dataset.mod));
+      // 缩略图现在是 file:// URL：图被删/盘掉了就会加载失败。
+      // 失败时藏起来，露出 .mod-thumb 的深色底，别显示裂图图标。
+      const thumbImg = card.querySelector('.mod-thumb img');
+      if (thumbImg) {
+        thumbImg.addEventListener('error', () => {
+          thumbImg.style.visibility = 'hidden';
+        });
+      }
       card.addEventListener('dblclick', () => toggleMod(card.dataset.mod));
       // 键盘：只保留 Enter = 选中（打开详情）。
       // Space 切换启停已移除 —— 空格是最容易误触的键，

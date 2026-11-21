@@ -129,7 +129,7 @@ python -m venv .venv
 ### 3.3 验证
 
 ```powershell
-# 业务逻辑单测 + 前后端契约测试（79 个，用隔离临时目录，不碰真实游戏目录）
+# 业务逻辑单测 + 前后端契约测试（82 个，用隔离临时目录，不碰真实游戏目录）
 .\.venv\Scripts\python -X utf8 -m unittest discover -s tests -v
 
 # 前端契约测试单独跑（45 项，Node 直跑，不需要 Python）
@@ -352,11 +352,28 @@ library.json
 | `size` (字节) | `size` (MB) | 前端除以 1048576 |
 | `added` (epoch 秒) | `added` (**几天前**) | **同名不同义，最容易踩** |
 
-### 为什么 thumb 是 data URI
+### 为什么 thumb 是 file:// URL（2026-11-21 改）
 
-页面是 `file://` 协议。图片在 E: 盘、页面在 D: 盘时，WebView2 会拦截跨盘 `file://` 资源 —— 表现为**全部裂图**。所以后端把预览图读出来转成 base64（超过 400KB 先用 Pillow 压到 320×180）。
+原本是 base64，依据是「跨盘 `file://` 会被 WebView2 拦截」。**这条经验是错的**：
+实测页面在 D:、图片在 E:，22 张跨盘图 **21 张直载成功**，唯一失败的那张
+是路径没做百分号编码。
 
-代价：`bootstrap()` 一次要传 ~5MB 的 base64。这是当前最大的性能开销。
+base64 的真实代价实测出来很大：`bootstrap()` 一次过桥 **18.2MB / 3.13s**。
+
+现在的做法（`api._thumb_url`）：
+
+| 情况 | 返回 |
+|---|---|
+| 预览图 > 400KB | 压成 320×180 存 `data/thumb-cache/<hash>.jpg`，返回它的 URL |
+| 预览图 ≤ 400KB | 直接返回原图的 URL |
+| 没有图 | 退回 `assets/wiki` 占位图 URL；都没有才空串 |
+
+- URL 一律走 `pathlib.Path(p).resolve().as_uri()` —— 手拼字符串遇到中文/空格会 404
+- 缓存键 = 路径 + mtime + 大小：换图自动失效；第二次启动只 stat，不重新压图
+- 前端 `loading="lazy"`：只有看得见的卡片才会真的读盘
+
+效果：payload **18.2MB → 0.09MB**，`bootstrap()` **3.13s → 0.11s**。
+`thumb-cache/` 是纯缓存，`clean_cache` 会整目录删掉（删了下次启动重新生成一次）。
 
 ---
 
@@ -655,11 +672,19 @@ def progress(text, done=0, current=""):
 
 **如果哪天允许改 core，第一件该做的就是保住 `added_at`。**
 
-### 7.5 为什么缩略图是 base64 而不是文件路径
+### 7.5 缩略图：file:// URL + 磁盘缓存（旧结论已推翻）
 
-见第 5 节。跨盘 `file://` 被 WebView2 拦截。
+~~跨盘 `file://` 被 WebView2 拦截~~ —— 2026-11-21 实测不成立，见 §5。
+改成 URL 之后 bootstrap 从 18.2MB/3.13s 降到 0.09MB/0.11s。
 
-代价是 `bootstrap` 慢、内存占用高。如果以后要优化，方向是：把缩略图缓存到 `_internal` 同盘目录，或者用 pywebview 的本地 HTTP server。
+留两个坑提醒：
+
+1. **必须 `Path.as_uri()`**。手拼 `"file:///" + path` 遇到中文/空格会 404，
+   而且浏览器只会表现为「这张图裂了」，不会有任何报错。
+2. **超大原图要压**。`addons/` 里有 8504×8504、13MB 的 jpg；200 张原图共 151MB。
+   > 400KB 的会压成 320×180 落盘缓存，别指望渲染端硬解。
+
+如果哪天又出现「全部裂图」，先查这两条，再查 WebView2 版本策略。
 
 ### 7.6 为什么前端有 mock 降级
 
@@ -875,6 +900,44 @@ def progress(text, done=0, current=""):
 「空了的要不要删、自带的要不要留」，而且会和 `item` 形成两个真相来源。
 现在它纯粹是 `mods` 的投影 —— 这也正好满足「移走所有模组后自动清除」。
 
+### 8.12 第十一轮（2026-11-21）：启动性能 + 对话框放大
+
+用户反馈：启用软件有点慢；改子分类的窗口太小、显得狭窄。
+
+#### 启动慢的根因：缩略图走了 base64
+
+`bootstrap()` 实测 **3.13s / 18.2MB**，其中 18.1MB 是 200 张缩略图的 base64。
+这个开销**一定会出现在其他用户机器上**：与模组数量和图片体积成正比，
+用户模组更多就更慢（500 条大概 45MB）。
+
+| 改动 | 效果 |
+|---|---|
+| 缩略图改传 `file://` URL（`Path.as_uri()`），>400KB 的压 320×180 落盘缓存 | payload **18.2MB → 0.09MB** |
+| `bootstrap()` | **3.13s → 0.11s**（二次/热缓存） |
+| 首次启动（71 张大图要压一次） | 3.8s，之后 0.11s |
+| 进程启动 → 首屏卡片 | **~1.9s**（其中 ~1.2s 是 WebView2 初始化、0.38s 是 import，都不是数据） |
+
+#### 顺带修掉第二个瓶颈：游戏进程检测
+
+`bootstrap` 里同步调 `app/core/game.is_l4d2_running()`，它起 `tasklist` 子进程，
+实测 **0.49s** —— 占掉缩略图修好之后剩下的九成时间。
+
+core 是冻结层，所以在 `app/shell/api.py` 加了一条快路径
+`_game_running_fast()`：用 `CreateToolhelp32Snapshot` 遍历进程表，**11ms**，
+结果与 core 完全一致；任何异常返回 `None`，退回 core 的实现，不自己猜。
+检测失败仍然按 `unknown=true` 处理（前端会挡住写入），语义没变。
+
+#### 子分类对话框放大
+
+`max-width` 420 → **560px**，列表 `max-height` 220 → **420px**，
+行高/字号也放宽（5px/10px → 7px/11px）。原来 40 项要滚 6 屏，现在 3 屏。
+
+#### 教训
+
+`docs` 里写着「跨盘 file:// 被 WebView2 拦截」—— 一条**没被验证过的经验**，
+代价是整个 bootstrap 每次启动多花 3 秒。凡是写在文档里的"平台限制"，
+最好附上复现命令；这次复用 22 张跨盘图的探针一测就推翻了。
+
 ### 8.5 第四轮（分类器修复 + 组级互斥开关）
 
 | 项 | 结果 |
@@ -1007,7 +1070,7 @@ def progress(text, done=0, current=""):
 
 - [ ] 读本文档第 0、5、6 节
 - [ ] `pip install -r requirements.txt`，跑起 `main_web.py`
-- [ ] 跑 `python -m unittest discover -s tests -v`，确认 **79 个全绿**
+- [ ] 跑 `python -m unittest discover -s tests -v`，确认 **82 个全绿**
 - [ ] 跑 `node tests/adapt_contract.js`，确认 **45 项**全过
 - [ ] 跑 `python -X utf8 docs/redesign/proto/e2e_check.py`，确认 `mode: live`
 - [ ] 打开一次 DevTools（`L4D2_DEBUG=1`），看有没有 console 错误
@@ -1061,7 +1124,7 @@ def progress(text, done=0, current=""):
 | 项 | 结果 |
 |---|---|
 | **发布流程** | 只有新界面一条路；7-Zip 三重校验；缺组件**直接失败**；冒烟默认开启（`-NoSmoke` 关） |
-| **契约保护** | Python 79 项 + Node 45 项，字段契约、标题兜底、合集/子分类三层都有断言 |
+| **契约保护** | Python 82 项 + Node 46 项，字段契约、标题兜底、合集/子分类三层都有断言 |
 | **实机可验** | `e2e_check.py` / `coll_check.py` / `toggle_check.py` 都跑真实库，不需要人眼看 |
 | **界面收口** | 卡片 `合集名 (x/5)`、详情「更多」常驻、标题三层兜底、自定义标题入口可见 |
 | **数据卫生** | `clean_cache` 清理 previews 孤儿（实测 31.3MB），重启不自动扫 |

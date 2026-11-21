@@ -709,13 +709,13 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 .dlg-input:focus { outline: none; border-color: var(--accent); }
 /* 子分类选择器：输入框在上（新建），下面是可滚动的现有子分类 */
 .sub-list {
-  margin-top: 8px; max-height: 220px; overflow-y: auto;
+  margin-top: 8px; max-height: 420px; overflow-y: auto;
   border: 1px solid #232a24; border-radius: 4px;
   background: #0c0f0c; padding: 4px;
 }
 .sub-item {
-  display: block; width: 100%; padding: 5px 8px; border-radius: 3px;
-  color: #a9b3a4; font-family: inherit; font-size: 10px; text-align: left;
+  display: block; width: 100%; padding: 7px 10px; border-radius: 3px;
+  color: #a9b3a4; font-family: inherit; font-size: 11px; text-align: left;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   cursor: pointer;
 }
