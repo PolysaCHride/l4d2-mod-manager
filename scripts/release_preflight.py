@@ -120,9 +120,18 @@ def check_git():
     rc, out = run(["git", "tag", "-l"])
     tags = sorted(t for t in out.split() if t)
     ok("现有 tag：%s" % (", ".join(tags) or "(无)"))
+    # 目标版本号的 tag 如果已经指向 HEAD，就是本次发布会用的那个，不算冲突；
+    # 指向别的提交才需要警告（说明版本号被复用或打错了）。
+    rc, head = run(["git", "rev-parse", "HEAD"])
+    head = head.strip()
     for t in tags:
         if re.match(r"^v?\d+\.\d+(\.\d+)?$", t) and t.lstrip("v").startswith("1.3"):
-            warn("tag %s 已存在，v1.3 发布会冲突" % t)
+            rc2, tag_commit = run(["git", "rev-list", "-n1", t])
+            if tag_commit.strip() == head:
+                ok("tag %s 指向当前 HEAD（本次发布用）" % t)
+            else:
+                warn("tag %s 指向的是 %s，不是当前 HEAD %s"
+                     % (t, tag_commit.strip()[:8], head[:8]))
 
     rc, out = run(["git", "rev-list", "--count", "HEAD"])
     note("总提交数 %s" % out.strip())
