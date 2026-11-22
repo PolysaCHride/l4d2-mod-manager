@@ -39,10 +39,10 @@
   // 结构固定，但**具体物品从真实数据里读**，不再写死。
   const RAIL_DEFS = [
     { key: 'all',      title: '全部', cats: null },
-    { key: 'survivor', title: '角色', cats: ['角色'] },
-    { key: 'special',  title: '特感', cats: ['特感'] },
+    { key: 'survivor', title: '角色', cats: ['角色'], mutex: true },
+    { key: 'special',  title: '特感', cats: ['特感'], mutex: true },
     { key: 'weapon',   title: '武器', cats: ['枪械', '近战', '医疗品', '投掷'],
-      grouped: true },
+      grouped: true, mutex: true },
     { key: 'map',      title: '地图', cats: ['地图'] },
     { key: 'other',    title: '其他',
       cats: ['UI', '音效音乐', '载具', '弹药', '材质特效', '动作', '杂物', '杂项', '其他', '未分类'],
@@ -57,6 +57,9 @@
         title: def.title,
         cats: def.cats,
         grouped: !!def.grouped,
+        // 这个 rail 里的东西是否参与（也显示）「同组互斥」。
+        // 2026-11-22 用户裁定：只给 角色 / 特感 / 武器；地图、其他 不参与也不显示。
+        mutex: !!def.mutex,
       };
     });
     return out;
@@ -95,6 +98,7 @@
       collectionTag,
       UNSET_LABEL,
       orderFilterItems,
+      railSupportsMutex,
       CATEGORY_OPTIONS,
       RAIL_DEFS,
       RAILS,
@@ -2063,7 +2067,7 @@
     if (!pool.some((m) => m.id === state.selectedId)) {
       state.selectedId = pool.length ? pool.slice().sort((a, b) => a.added - b.added)[0].id : null;
     }
-    renderRail(); renderFilters(); renderGrid(); renderInspector();
+    renderRail(); renderFilters(); renderGrid(); renderInspector(); paintMutexBtn();
   }));
 
   $$('[data-layout]').forEach((b) => b.addEventListener('click', () => {
@@ -2128,9 +2132,25 @@
     if (el) el.textContent = state.version ? ('v' + state.version) : '';
   }
 
+  /** 某个 rail 里的东西参不参与互斥 —— 也是「开关要不要显示」的依据。
+   *  2026-11-22 用户裁定：只有 角色 / 特感 / 武器 三个 rail 显示并参与；
+   *  地图、其他（含 UI/音效/载具/材质…）、以及「全部」都不显示。
+   *  后端同理：classify.CONFLICT_CATEGORIES 不含地图与那些叠加型分类。
+   *  抽成接 key 的纯函数，Node 契约测试可以直接断言。 */
+  function railSupportsMutex(railKey) {
+    const def = RAILS[railKey];
+    return !!(def && def.mutex);
+  }
+
+  function railHasMutex() {
+    return railSupportsMutex(state.rail);
+  }
+
   function paintMutexBtn() {
     const btn = $('#mutexBtn');
     if (!btn) return;
+    // 不参与互斥的分类里，这个开关没有意义 —— 直接藏起来，不留一个点了没反应的控件。
+    btn.hidden = !railHasMutex();
     btn.classList.toggle('on', !!state.mutex);
     btn.setAttribute('aria-checked', state.mutex ? 'true' : 'false');
     const use = btn.querySelector('use');

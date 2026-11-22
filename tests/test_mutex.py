@@ -62,8 +62,22 @@ class ConflictKeyTests(unittest.TestCase):
         self.assertIsNone(conflict_key({"category": "角色", "item": None}))
 
     def test_overlay_categories_never_participate(self):
-        for cat in ("地图", "音效音乐", "UI", "弹药", "材质特效", "载具", "杂项"):
+        """地图与「其他」下的所有分类都不参与互斥。
+
+        2026-11-22 用户特别强调：**地图绝对不要加互斥** ——
+        同一张图的多个部件（`xxx_dir.vpk` + `xxx_001.vpk`）本来就该共存，
+        被互斥掉的话地图会「缺块」。
+        """
+        for cat in ("地图", "音效音乐", "UI", "弹药", "材质特效",
+                    "载具", "动作", "杂项", "其他", "未分类"):
             self.assertIsNone(conflict_key({"category": cat, "item": "X"}), cat)
+
+    def test_map_with_item_never_joins_a_group(self):
+        """地图即使有 item（战役名）也不能互斥。"""
+        a = {"category": "地图", "item": "The Bloody Moors", "file": "a.vpk"}
+        b = {"category": "地图", "item": "The Bloody Moors", "file": "b.vpk"}
+        self.assertIsNone(conflict_key(a))
+        self.assertIsNone(conflict_key(b))
 
 
 class ManualToggleTests(MutexBase):

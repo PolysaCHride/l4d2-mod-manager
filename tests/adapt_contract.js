@@ -506,6 +506,30 @@ check('未知排序键退回最近添加（不崩）', () => {
   eq(list.sort(app.sorterOf('nope')).map((x) => x.name).join(''), 'ba');
 });
 
+console.log('\n同组互斥的适用范围');
+
+check('只有 角色/特感/武器 显示并参与互斥', () => {
+  // 2026-11-22 用户裁定：地图、其他一律不带互斥开关
+  eq(['all', 'survivor', 'special', 'weapon', 'map', 'other']
+      .filter((r) => app.railSupportsMutex(r)).join(','), 'survivor,special,weapon');
+});
+
+check('「全部」不显示互斥开关（混合列表，语义不清）', () => {
+  eq(app.railSupportsMutex('all'), false);
+});
+
+check('地图不参与互斥', () => {
+  eq(app.railSupportsMutex('map'), false);
+});
+
+check('其他（UI/音效/载具/材质…）不参与互斥', () => {
+  eq(app.railSupportsMutex('other'), false);
+});
+
+check('未知 rail 返回 false，不崩', () => {
+  eq(app.railSupportsMutex('nope'), false);
+});
+
 console.log('');
 if (failures) {
   console.error('失败 ' + failures + ' 项');
