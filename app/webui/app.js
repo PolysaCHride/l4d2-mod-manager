@@ -99,6 +99,7 @@
       RAIL_DEFS,
       RAILS,
       writeBlockedOf,
+      sorterOf,
     };
     return;
   }
@@ -110,6 +111,10 @@
     filterItem: null,         // 'Ellis' 等；null = 全部
     layout: 'grid',
     sort: 'added',
+    // 同组互斥开关（后端 settings.mutex，默认开）。true = 同一物品只允许启用一个。
+    mutex: true,
+    // 当前存量冲突组 [{category,item,winner,members}]，bootstrap 填。
+    conflicts: [],
     query: '',
     selectedId: null,
     gameRunning: false,
@@ -117,7 +122,7 @@
     openGroups: new Set(),   // 树状分组展开状态，由用户点击决定
     toastTimer: null,
     settings: {},
-    version: '1.2.1',
+    version: '1.3',
     // addons 目录（statusPath 点击时真去打开它）；bootstrap 的 paths.addons 填入
     addonsDir: '',
     // 游戏运行状态是否「检测失败」而非「确实没运行」。
@@ -183,7 +188,13 @@
     const root = $('#modal-root');
     $('#modal-host').innerHTML = html;
     root.classList.add('open');
-    const first = $('#modal-host').querySelector('.dlg-foot button.primary, .dlg-foot button');
+    // 焦点优先给主按钮（.primary）。**必须分开写两次 querySelector**：
+    // 写成选择器列表 `.primary, button` 时，querySelector 返回的是"文档顺序第一个
+    // 匹配任意一个选择器"的元素 —— 也就是排在前面的「取消」/「关闭互斥」，
+    // 于是所有确认框的焦点都落在取消上，回车等于取消。
+    const host = $('#modal-host');
+    const first = host.querySelector('.dlg-foot button.primary')
+      || host.querySelector('.dlg-foot button');
     if (first) first.focus();
     root.dataset.onClose = onClose ? '1' : '';
     root._onClose = onClose || null;
@@ -235,6 +246,46 @@
         onClose: () => resolve(true),
       });
       $$('#modal-host [data-btn]').forEach((b) => b.addEventListener('click', () => closeModal(true)));
+    });
+  }
+
+  /**
+   * 冲突收敛对话框。groups = [{category, item, winner, members:[{file,title,enabled}]}]
+   * 返回 'enable'（按默认方案开启互斥并收敛）或 'keep'（保持关闭、什么都不改）。
+   *
+   * 版式与 states.html 一致：按「分类 · 子分类」分组，绿点＝将保留的那个，
+   * 划线灰字＝将被停用的。底部两个按钮：关闭互斥 / 默认启用。
+   */
+  function conflictDialog(groups) {
+    return new Promise((resolve) => {
+      const list = groups.map((g) => {
+        const rows = (g.members || []).map((m) => {
+          const keep = m.file === ((g.winner || {}).file);
+          return `<div class="cf-row ${keep ? 'keep' : 'drop'}">
+            <i></i><span>${esc(m.title || m.file)}</span>
+            ${keep ? '<em>保留</em>' : ''}</div>`;
+        }).join('');
+        return `<div class="cf-group">
+          <div class="cf-head">${esc(g.category)} · ${esc(g.item)}</div>${rows}</div>`;
+      }).join('');
+      const html = `<div class="dlg info" style="max-width:460px">
+        <div class="dlg-head"><span class="dot"></span><h4>发现 ${groups.length} 组冲突</h4>
+          <button class="dlg-close" type="button" data-btn="close" aria-label="关闭">${icon('x')}</button></div>
+        <div class="dlg-body">
+          <p class="dlg-text">开启同组互斥后，同一物品只保留一个启用项。以下模组将被启用，同组其余模组会停用：</p>
+          <div class="cf-list">${list}</div>
+        </div>
+        <div class="dlg-foot">
+          <button class="btn ghost" type="button" data-btn="keep">关闭互斥</button>
+          <button class="btn primary" type="button" data-btn="enable">默认启用</button>
+        </div></div>`;
+      openModal(html, { onClose: () => resolve('keep') });
+      $$('#modal-host [data-btn]').forEach((b) => b.addEventListener('click', () => {
+        if (b.dataset.btn === 'close') { closeModal(); resolve('keep'); return; }
+        const value = b.dataset.btn === 'enable' ? 'enable' : 'keep';
+        closeModal();
+        resolve(value);
+      }));
     });
   }
 
@@ -473,12 +524,23 @@
     }
     if (state.filterMode === 'on') list = list.filter((m) => m.enabled);
     if (state.filterMode === 'off') list = list.filter((m) => !m.enabled);
-    const sorters = {
-      added: (a, b) => b.added - a.added,   // 最新在前
-      name: (a, b) => (a.alias || a.name).localeCompare(b.alias || b.name, 'zh'),
-      size: (a, b) => b.size - a.size,
-    };
-    return list.slice().sort(sorters[state.sort] || sorters.added);
+    // 「启用优先」是第 4 种独立排序（不是叠加）：已启用的排前面，组内仍按最近添加。
+    // 做成纯函数风格，Node 契约测试可以直接调 sortMods 断言。
+    return list.slice().sort(sorterOf(state.sort));
+  }
+
+  /** 排序键 → 比较函数。抽成纯函数，Node 契约测试直接调它断言四种排序。 */
+  function sorterOf(key) {
+    const byAdded = (a, b) => b.added - a.added;
+    const byName = (a, b) => (a.alias || a.name).localeCompare(b.alias || b.name, 'zh');
+    const bySize = (a, b) => b.size - a.size;
+    if (key === 'name') return byName;
+    if (key === 'size') return bySize;
+    if (key === 'enabled') {
+      // 启用优先：先按启用状态分组，组内仍按最近添加。
+      return (a, b) => (Number(!!b.enabled) - Number(!!a.enabled)) || byAdded(a, b);
+    }
+    return byAdded;
   }
 
   const selected = () => MODS.find((m) => m.id === state.selectedId) || null;
@@ -1237,6 +1299,9 @@
     state.collections = res.collections || {};
     state.catalog = res.catalog || {};
     state.gameRunning = !!(res.game && res.game.running);
+    // 同组互斥开关：后端没给（老版本）就按开处理，和默认值一致。
+    state.mutex = res.mutex === undefined ? true : !!res.mutex;
+    state.conflicts = res.conflicts || [];
     // 后端在 is_l4d2_running() 抛异常时给 unknown=true。
     // 检测失败 ≠ 没在运行 —— 这时必须按「不能写」处理，否则游戏运行中
     // 写 addonlist.txt 会失败或损坏（HANDOFF §7.2 / §9.2）。
@@ -1247,6 +1312,9 @@
       if (el) el.textContent = res.paths.addons;
     }
     applyGameStatus();
+    paintMutexBtn();
+    paintSortMenu();
+    paintVersion();
     if (MODS.length && !MODS.some((m) => m.id === state.selectedId)) {
       state.selectedId = MODS[0].id;
     }
@@ -1348,8 +1416,9 @@
     }
 
     // ---- 启用 ----
-    // 2026-11-20 起不做互斥：启用就是启用，不弹「会停用同组 X 个」的确认框，
-    // 也不会连带停用任何模组。冲突由用户自行管理。
+    // 互斥开关打开时，后端会顺带停用同组其它模组，并把它们的文件名回传
+    // （disabled_siblings）。这里不弹确认框 —— 开关本身就是那个确认；
+    // 但必须把「顺带停了谁」说出来，否则用户会以为自己的模组莫名消失了。
     const res = await window.bridge.toggle_mod(m.file, true);
     if (!res || !res.ok) {
       paintCards(); renderInspector();
@@ -1358,8 +1427,18 @@
       return;
     }
     m.enabled = true;
+    const siblings = (res.disabled_siblings || []).filter(Boolean);
+    if (siblings.length) {
+      // 先把内存里的兄弟一起改成停用，再重绘 —— 否则卡片还显示「已启用」
+      siblings.forEach((f) => {
+        const sib = MODS.find((x) => x.id === f);
+        if (sib) sib.enabled = false;
+      });
+    }
     repaintAfterToggle();
-    toast('已启用');
+    toast(siblings.length
+      ? ('已启用，同组停用 ' + siblings.length + ' 个')
+      : '已启用');
   }
 
   // ---------------------------------------------------------------- status bar
@@ -1993,24 +2072,116 @@
     renderGrid();
   }));
 
-  $('#sortBtn').addEventListener('click', async () => {
-    // 三种排序在 visibleMods 的 sorters 里都已实现，这里只是缺一个入口。
-    // 早期版本只弹一句「演示用对话框代替下拉菜单」，选择结果永远是 added —— 假动作。
-    const current = { added: '最近添加', name: '名称', size: '文件大小' };
-    const next = state.sort === 'added' ? 'name'
-      : state.sort === 'name' ? 'size' : 'added';
-    const ok = await confirmDialog({
-      title: '排序',
-      tone: 'question',
-      text: `当前按「${current[state.sort] || state.sort}」排序。切换到「${current[next]}」？`,
-      confirm: '切换到' + current[next],
-      cancel: '保持现状',
+  // ---- 排序下拉栏：点开 → 点一项 → 立刻生效并收起，全程不弹窗 ----
+  const SORT_LABELS = { added: '最近添加', name: '名称', size: '文件大小', enabled: '启用优先' };
+
+  function closeSortMenu() {
+    const menu = $('#sortMenu');
+    if (menu) menu.hidden = true;
+    const btn = $('#sortBtn');
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+  }
+
+  function paintSortMenu() {
+    const label = $('#sortLabel');
+    if (label) label.textContent = SORT_LABELS[state.sort] || '最近添加';
+    $$('#sortMenu [data-sort]').forEach((b) => {
+      const cur = b.dataset.sort === state.sort;
+      b.classList.toggle('is-cur', cur);
+      b.setAttribute('aria-selected', cur ? 'true' : 'false');
     });
-    if (!ok) return;
-    state.sort = next;
-    renderGrid();
-    toast('已按「' + current[next] + '」排序');
+  }
+
+  $('#sortBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const menu = $('#sortMenu');
+    const open = menu.hidden;
+    paintSortMenu();
+    menu.hidden = !open;
+    $('#sortBtn').setAttribute('aria-expanded', open ? 'true' : 'false');
   });
+
+  $$('#sortMenu [data-sort]').forEach((b) => b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const key = b.dataset.sort;
+    closeSortMenu();
+    if (key === state.sort) return;          // 点了当前项：关掉就好，不重排也不弹提示
+    state.sort = key;
+    paintSortMenu();
+    renderGrid();
+  }));
+
+  // 点外部 / Esc 收起。用 document 上的单次绑定，避免每次开菜单都叠一个监听。
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#sortWrap')) closeSortMenu();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeSortMenu();
+  });
+
+  // ---- 同组互斥开关 ----
+  /** 状态栏版本号由 bootstrap 的 version 驱动，不再写死在 HTML 里。
+   *  原来是 <span class="status-version">v1.2.1</span> 死字符串 ——
+   *  发版时只改 APP_VERSION，状态栏就永远停在旧版本，和设置页同屏两个版本号。 */
+  function paintVersion() {
+    const el = $('#statusVersion');
+    if (el) el.textContent = state.version ? ('v' + state.version) : '';
+  }
+
+  function paintMutexBtn() {
+    const btn = $('#mutexBtn');
+    if (!btn) return;
+    btn.classList.toggle('on', !!state.mutex);
+    btn.setAttribute('aria-checked', state.mutex ? 'true' : 'false');
+    const use = btn.querySelector('use');
+    if (use) use.setAttribute('href', state.mutex ? '#i-lock' : '#i-lock-open');
+    btn.title = state.mutex
+      ? '同组互斥已开启：同一物品只允许启用一个模组'
+      : '同组互斥已关闭：同一物品可以同时启用多个模组';
+  }
+
+  async function onMutexToggle() {
+    const next = !state.mutex;
+    if (next) {
+      // 打开前先算一遍存量冲突：有冲突才弹窗让用户确认要停用哪些。
+      // 不静默收敛 —— 那会在他没看清之前就改掉一批启用状态。
+      const res = await window.bridge.get_mutex();
+      const groups = (res && res.ok && res.groups) || [];
+      if (groups.length) {
+        const ok = await conflictDialog(groups);
+        if (ok === 'enable') {
+          const done = await window.bridge.set_mutex(true);
+          state.mutex = !!(done && done.ok ? done.mutex : true);
+          paintMutexBtn();
+          const fixed = await window.bridge.resolve_conflicts();
+          if (fixed && fixed.ok) {
+            MODS = (fixed.mods || MODS).map(adapt);
+            await loadFromBridge();
+            renderFilters(); renderGrid(); renderInspector();
+            toast(`已开启同组互斥，停用 ${fixed.count || 0} 个模组`);
+          } else {
+            toast('已开启同组互斥');
+          }
+          return;
+        }
+        // 用户选「关闭互斥」→ 开关保持关，什么都不改
+        state.mutex = false;
+        paintMutexBtn();
+        return;
+      }
+    }
+    const res = await window.bridge.set_mutex(next);
+    if (!res || !res.ok) {
+      await infoDialog({ title: '无法切换', tone: 'danger',
+                         text: (res && res.error) || '写入设置失败' });
+      return;
+    }
+    state.mutex = !!res.mutex;
+    paintMutexBtn();
+    toast(state.mutex ? '已开启同组互斥' : '已关闭同组互斥');
+  }
+
+  $('#mutexBtn').addEventListener('click', (e) => { e.stopPropagation(); onMutexToggle(); });
 
   // 「刷新」= 只读重扫（rescan）：同步 addonlist 状态、重建记录。
   // 「整理」= 全量采纳（adopt_all）：会把子目录 / workshop 里的 vpk 移到顶层。

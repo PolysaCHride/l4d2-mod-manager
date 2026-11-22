@@ -55,7 +55,7 @@
 | `title` | str | 显示名。addoninfo → mission 标题 → 工坊 ID → 文件名 | 扫描/在线补全 |
 | `alias` | str | 用户自定义别名，**优先于 title 显示** | 用户（`set_alias`） |
 | `category` | str | 分类，取值见 `classify.CATEGORIES` | 分类器 / 用户 |
-| `item` | str | 具体物品（`AK-47`、`Ellis`）。空 = 该分类整体 | 分类器 / 用户 |
+| `item` | str | 具体物品（`AK-47(AK)`、`Ellis(艾利斯)`）。**空 = 该分类整体/未指定**（见 §7.5：目录外的名字会被分类器归空） | 分类器 / 用户 |
 | `tags` | list[str] | 分类器给出的辅助标签，**新 UI 不消费**，旧 UI 用于搜索 | 分类器 |
 | `size` | int | vpk 字节数 | 扫描 |
 | `mtime` | int | 文件 mtime（epoch 秒）。用于判断是否需要重解析 | 扫描 |
@@ -152,16 +152,23 @@
 
 ```python
 # app/core/classify.py
-CLF_VERSION = 16
+CLF_VERSION = 17
 ```
 
 ### 版本历史
 
 | 版本 | 变更 | 影响 |
 |---:|---|---|
+| 17（2026-11-21） | 近战表只留官方 15 把；新增 `_normalize_item`：**目录外的 item 一律归「未指定」**；自制近战目录 `models/weapons/<作者>/melee/` 进近战分支；`category_catalog()` 收进 core | 全库重扫，真实库 200 个模组**分类零变化**（见下） |
 | 16（2026-11-21） | 标题提取忽略 `addoninfo` 键的大小写；mission 标题优先于 addoninfo（当它更完整时） | 只修好 4 个纯数字标题，其余靠 `title_locked` 保护不动 |
 | 15（2026-11-20） | 新增「前置/框架包」识别；新增「addoninfo 明示 Campaign/Map → 归地图」前置规则 | 全库重扫，200 个模组中 17 个分类变化（见下） |
 | 14 | 之前 | — |
+
+**17 版为什么「零变化」**：真实库里没有任何模组真的被分到洋葱/乒乓球拍这类
+自制近战上（200 个里一个都没有），所以删掉它们不影响已有记录。这一版的价值
+在**防止未来发生**：任何人装了带自制近战的地图，那些名字只会变成「未指定」，
+不会再作为子分类污染目录。同时把「分类器写得出、目录里没有」的 7 个孤儿名
+（`前置/框架`、`音乐`、`MP5(MP5)` 等）收进目录。
 
 **15 版实际带来的变化**（真实库实测）：
 
@@ -218,7 +225,8 @@ if (old and old.get("mtime") == mtime and old.get("size") == size
   "proxy": "",                  // 留空则按环境自动探测
   "archiver_path": "",          // 手工指定的 7z.exe；空则自动查找
   "palette": "blacksite",       // blacksite/safehouse/workshop/index
-  "motion": true                // 动画开关
+  "motion": true,               // 动画开关
+  "mutex": true                 // 同组互斥开关（缺省 = true；见 §7.6）
 }
 ```
 
@@ -228,13 +236,24 @@ if (old and old.get("mtime") == mtime and old.get("size") == size
 
 `game_dir` 改了会**重建 `Library` 实例**（`api.save_setting` 里置 None 再懒加载）。
 
-### 4.1 已移除：`mutex_off_groups`
+### 4.1 `mutex`：同组互斥开关（2026-11-22）
 
-2026-11-20 曾加过「组级互斥开关」，存在 `mutex_off_groups` 里。
-**2026-11-21 已整体拆除** —— 用户要求放弃互斥组实现、自行管理冲突。
-详见 `docs/PLAN_REMOVE_MUTEX.md`。
+**单一个布尔值，管全部外观类模组**，不是「按组开关」（那是已废弃的 `mutex_off_groups`）。
+缺省视为 `true`：新装用户与升级用户都从「同组只允许启用一个」起步。
 
-如果你在旧的 `settings.json` 里还看到这个键，可以安全删除（程序已不再读它）。
+| 值 | 行为 |
+|---|---|
+| `true` | 手动启用 A 会停用同 `(分类, 物品)` 的其它模组；导入/下载遵守「组里已有启用项 → 新模组只入库不启用」；「整理」会把每组收敛到一个（保留管理器原本记着启用的那个） |
+| `false` | 以上全部不生效，谁都不动 |
+
+参与范围：`classify.CONFLICT_CATEGORIES` 六类外观模组 **且** `item` 非空。
+「未指定」不参与；地图/音效/UI/载具等叠加型内容也不参与。
+
+> **`mutex_off_groups` 已废弃。** 2026-11-20 曾加过「按组开关」，2026-11-21 整体拆除，
+> 2026-11-22 改成现在这个全局开关。旧 `settings.json` 里如果还有 `mutex_off_groups`，
+> 可以安全删除（程序不再读它）。
+
+边界与实现见 `HANDOFF.md §8.17`。
 
 ---
 
@@ -371,13 +390,35 @@ for cid, info in store.collections().items():
 - 管理器自带的子分类不会因为「空了」被删 —— 没有任何代码会去改别的模组的 `item`。
 
 **「自带的」子分类从哪来**：`bootstrap` 的 `catalog` 字段，由
-`api._category_catalog()` 从 core 的词表现算 —— `classify_data.WHITELIST_STEMS`
-（每条规则的目标）、`PREFIX_RULES` / `REGEX_RULES`，以及 `classify.py` 里的人物/
-武器/近战/医疗名单。UI 只负责把它和库里的值并起来渲染。
+`app/core/classify.category_catalog()` 现算 —— 人物/特感/枪械/近战/医疗名单、
+`classify_data.WHITELIST_STEMS`（每条规则的目标）、`PREFIX_RULES` /
+`REGEX_RULES`，以及少数不由词表产出的桶（`EXTRA_ITEMS`：`前置/框架`、`音乐`）。
+`api._category_catalog()` 只是转发 + 异常兜底，**不再自己抄一份**。
+UI 只负责把它和库里的值并起来渲染。
 
 所以「特感」即使只有 2 个模组，树上也会列出 Boomer/Charger/Hunter/Jockey/
 Smoker/Spitter/Tank/Witch/普通感染者/语音 全部 10 项（空项不显示数量，
 点进去是空列表）。分类器以后加了新武器，这里自动出现，不需要改前端。
+
+### 7.5 哪些名字能进目录（2026-11-21 收紧）
+
+**目录 = 管理器向所有用户承诺的子分类清单。** 只有管理器自己能担保的物品
+才允许出现，判据是 `_normalize_item()`：
+
+| 分类 | item 的合法来源 |
+|---|---|
+| 角色 / 特感 / 枪械 / 近战 / 医疗品 / 投掷 | 只能来自词表；**目录外的名字一律归空串**（界面显示「未指定」） |
+| 杂项 / 载具 / UI / 弹药 / 动作 / 音效音乐 / 材质特效 | 同上，目录外的归「未指定」 |
+| 地图 | **例外**：item 是工坊/mission 里扫出来的战役名，每人不同，不校验 |
+
+为什么必须收紧：某些地图/整合包自带自制近战（`scripts/melee/pingpang.txt`、
+`models/weapons/gzzc/melee/w_onion.mdl` 这种），它们只在那一张图里成立。
+若让这些名字漏进 `item`，前端会把它们当子分类列出来 —— 等于把别人的自制
+内容当管理器内置分类发布给所有用户。现在它们的分类仍是「近战」，但
+item 为空 → 落在「未指定」里，用户自己看得见、也能手工改名。
+
+对应用例见 `tests/test_classify_rules.py` 的 `TestCustomMeleeIsUnspecified`
+与 `TestCatalogIsManagerOwned`。
 
 `app/core/` 未参与这套统一（冻结层）：全部落在 `app/shell/api.py` 与前端显示层。
 

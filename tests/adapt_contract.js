@@ -474,6 +474,38 @@ check('只有两者都 false 才放行', () => {
   eq(app.writeBlockedOf(false, false), '', '可以写时返回空串');
 });
 
+console.log('\n排序（四种）');
+
+const mk = (name, added, enabled, size) => ({
+  id: name, name, alias: '', added, enabled, size: size || 1,
+});
+
+check('最近添加：新的在前', () => {
+  const list = [mk('a', 1), mk('b', 3), mk('c', 2)];
+  eq(list.sort(app.sorterOf('added')).map((x) => x.name).join(''), 'bca');
+});
+
+check('名称：按 localeCompare(zh) 排', () => {
+  const list = [mk('b', 1), mk('a', 1)];
+  eq(list.sort(app.sorterOf('name')).map((x) => x.name).join(''), 'ab');
+});
+
+check('文件大小：大的在前', () => {
+  const list = [mk('a', 1, false, 10), mk('b', 1, false, 30), mk('c', 1, false, 20)];
+  eq(list.sort(app.sorterOf('size')).map((x) => x.name).join(''), 'bca');
+});
+
+check('启用优先：已启用的排前面，组内仍按最近添加', () => {
+  const list = [mk('a', 3, false), mk('b', 1, true), mk('c', 2, true)];
+  // 已启用组按 added 降序 → c(2) 在 b(1) 前；未启用组只有 a
+  eq(list.sort(app.sorterOf('enabled')).map((x) => x.name).join(''), 'cba');
+});
+
+check('未知排序键退回最近添加（不崩）', () => {
+  const list = [mk('a', 1), mk('b', 2)];
+  eq(list.sort(app.sorterOf('nope')).map((x) => x.name).join(''), 'ba');
+});
+
 console.log('');
 if (failures) {
   console.error('失败 ' + failures + ' 项');

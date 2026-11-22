@@ -95,9 +95,21 @@
               <button type="button" data-layout="list" title="列表视图" aria-label="列表视图"><svg class="i" aria-hidden="true"><use href="#i-list"></use></svg></button>
             </div>
             <span class="spacer"></span>
-            <button class="select-btn" type="button" id="sortBtn">
-              最近添加<svg class="i" aria-hidden="true"><use href="#i-chevron-down"></use></svg>
+            <button class="mutex-btn on" type="button" id="mutexBtn" role="switch" aria-checked="true"
+                    title="同组互斥：同一物品只允许启用一个模组">
+              <svg class="i" aria-hidden="true"><use href="#i-lock"></use></svg><span>同组互斥</span>
             </button>
+            <div class="sort-wrap" id="sortWrap">
+              <button class="select-btn" type="button" id="sortBtn" aria-haspopup="listbox" aria-expanded="false">
+                <span id="sortLabel">最近添加</span><svg class="i" aria-hidden="true"><use href="#i-chevron-down"></use></svg>
+              </button>
+              <div class="sort-menu" id="sortMenu" role="listbox" hidden>
+                <button type="button" role="option" data-sort="added"><svg class="i tick" aria-hidden="true"><use href="#i-check"></use></svg>最近添加</button>
+                <button type="button" role="option" data-sort="name"><svg class="i tick" aria-hidden="true"><use href="#i-check"></use></svg>名称</button>
+                <button type="button" role="option" data-sort="size"><svg class="i tick" aria-hidden="true"><use href="#i-check"></use></svg>文件大小</button>
+                <button type="button" role="option" data-sort="enabled"><svg class="i tick" aria-hidden="true"><use href="#i-check"></use></svg>启用优先</button>
+              </div>
+            </div>
             <button class="icon-btn" type="button" id="refreshBtn" title="重新扫描" aria-label="重新扫描">
               <svg class="i" aria-hidden="true"><use href="#i-refresh"></use></svg>
             </button>
@@ -211,7 +223,7 @@
     </span>
     <span class="spacer"></span>
     <button class="status-path" id="statusPath" type="button" title="打开 addons 目录"></button>
-    <span class="status-version">v1.2.1</span>
+    <span class="status-version" id="statusVersion"></span>
   </footer>
 </div>
 
@@ -239,6 +251,8 @@
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
   <symbol id="i-caret" viewBox="0 0 12 12"><path d="M2.2 4.2 6 8l3.8-3.8z" fill="currentColor" stroke="none"/></symbol>
   <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6.5 9 5.5 5.5L17.5 9"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="1.6"/><path d="M8.4 11V7.8a3.6 3.6 0 0 1 7.2 0V11"/><circle cx="12" cy="15.2" r="1.1" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-lock-open" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="1.6"/><path d="M8.4 11V7.8a3.6 3.6 0 0 1 6.9-1.4"/><circle cx="12" cy="15.2" r="1.1" fill="currentColor" stroke="none"/></symbol>
   <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9.5 6.5 5.5 5.5-5.5 5.5"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="m4.8 12.3 4.6 4.6 9.8-9.8"/></symbol>
   <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>

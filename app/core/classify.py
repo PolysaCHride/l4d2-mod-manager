@@ -20,6 +20,17 @@ from . import classify_data as _cdata
 
 # 分类引擎版本号：表格/规则变更时 +1，库缓存据此强制重解析
 #
+# 17 (2026-11-21)：
+#   · 近战表只留官方 15 把。删掉「洋葱/乒乓球拍/椅子/菜刀/锤子/扳手/柜子/
+#     西瓜皮」—— 那是某张地图自带的自制近战（甚至没有脚本），不该作为
+#     管理器内置子分类分发给所有用户（实测 200 个模组里一个都没有）
+#   · 新增 `_normalize_item`：实体分类写出了目录外的名字 → item 归空，
+#     界面显示为「未指定」。自制内容再也不会变成可见子分类
+#   · 自制近战的模型目录 `models/weapons/<作者>/melee/` 也进近战分支
+#     （原来整包掉进「枪械」）；`melee_manifest.txt` 不再被当成一件武器
+#   · 新增 `category_catalog()`：目录来源收进 core 一处，不再由 shell 抄一遍
+#   改版本号会触发全库重解析（200 个 vpk），这是刻意的。
+#
 # 16 (2026-11-21)：
 #   · 标题提取改为忽略大小写查 addoninfo 的键
 #     （`AddonTitle` / `addontitle` 两种写法都常见，原来只认后者的大写形式，
@@ -31,7 +42,7 @@ from . import classify_data as _cdata
 #     （地图多部件包拆开卖时无 bsp/mission，原被误判为音效/枪械/载具）
 #   改版本号会触发全库重解析（200 个 vpk），这是刻意的 —— 上面这些
 #   必须回填到已有记录，否则老模组继续显示错分类 / 错标题。
-CLF_VERSION = 16
+CLF_VERSION = 17
 
 # 会互相冲突的类别（仅分类器内部用于标注「这是外观类」）。
 #
@@ -114,16 +125,44 @@ KEYWORDS = [
 MED_NAMES = dict((k, v) for k, (_, v) in
                  [(kw, (kind, disp)) for kw, kind, disp in KEYWORDS if kind == "med"])
 
+# ★ 只放**官方**近战（Valve 原生 13 把 + 电锯 + 防暴盾）。
+#
+# 这张表同时是「近战」子分类目录的来源（见 category_catalog），所以它等于
+# 「管理器分发给所有用户的近战条目」。这里绝不能出现只属于个别模组的名字：
+#
+#   「洋葱」「乒乓球拍」「椅子」「菜刀」「锤子」「扳手」是某些地图/整合包
+#   自带的自制近战（scripts/melee/pingpang.txt + models/weapons/gzzc/melee/
+#   w_pingpang.mdl 那种），只在那张图里存在；「柜子」「西瓜皮」更是照着
+#   拼音规律顺手补的，连脚本都没有。
+#
+#   把它们写进表里有两个后果：① 每个用户的「近战」侧栏里都多出几个永远点不到
+#   实物的条目（实测 200 个模组里一个都没有）；② 等于把别人的自制内容当成
+#   管理器的内置分类来发布。它们该落到 item 留空 → 界面的「未指定」。
 MELEE_NAMES = {
     "crowbar": "撬棍", "axe": "消防斧", "fireaxe": "消防斧", "katana": "武士刀",
     "machete": "砍刀", "baseball_bat": "棒球棒", "frying_pan": "平底锅",
     "electric_guitar": "电吉他", "tonfa": "警棍", "golfclub": "高尔夫球杆",
     "cricket_bat": "板球棒", "knife": "小刀", "pitchfork": "草叉", "shovel": "铁锹",
     "riot_shield": "防暴盾", "bat": "棒球棒",
-    # 国内自制近战武器常见拼音名
-    "caidao": "菜刀", "hammer": "锤子", "wrench": "扳手", "pingpang": "乒乓球拍",
-    "onion": "洋葱", "chair": "椅子", "guizi": "柜子", "xiguapi": "西瓜皮",
 }
+
+# 不属于任何词表、但确实是管理器自己的「桶」的子分类。
+# 它们由 classify_paths 直接产出，所以也要进目录，否则会变成只会从库里
+# 冒出来的孤儿项（空库时不显示，和有模组时显示，看起来像分类坏了）。
+EXTRA_ITEMS = [
+    ("杂项", "前置/框架"),
+    ("音效音乐", "音乐"),
+]
+
+# 唯一允许 item 自由取值的分类：地图的第二层是**战役名**，从 missions/*.txt
+# 的 DisplayTitle 扫出来，每个用户都不一样，不可能列进目录。
+# 其余分类的 item 必须落在 category_catalog() 里，否则一律归「未指定」。
+_FREE_ITEM_CATS = ("地图",)
+
+# KEYWORDS 的 kind 缩写 → 一级分类
+_KIND_TO_CAT = {"wpn": "枪械", "mel": "近战", "med": "医疗品", "thr": "投掷"}
+
+_CATALOG_CACHE = None
 
 
 def _norm_key(s):
@@ -285,7 +324,88 @@ def _looks_like_framework(addoninfo, hint, all_paths=None):
     return True
 
 
+def category_catalog():
+    """分类 → 管理器**自带**的全部子分类（含当前一个模组都没有的）。
+
+    只有这里列出来的名字才会分发给所有用户（`bootstrap().catalog`）。
+    两个来源：
+
+      · 词表本身：人物/特感/枪械/近战/医疗名单 + 白名单表里每条规则的目标
+      · 少数不由词表产出的桶（`EXTRA_ITEMS`），如「前置/框架」「音乐」
+
+    刻意**不**包含：地图（item 是扫出来的战役名，每人不同）、
+    UI/弹药/材质特效/动作/其他/未分类（恒为空 = 该分类整体）。
+    这些分类的「未指定」由前端自己追加，不占目录。
+    """
+    global _CATALOG_CACHE
+    if _CATALOG_CACHE is not None:
+        return {k: list(v) for k, v in _CATALOG_CACHE.items()}
+
+    pairs = set()
+    for cat, names in (("角色", SURVIVOR_NAMES), ("特感", SPECIAL_NAMES),
+                       ("枪械", WEAPON_SEG_NAMES), ("近战", MELEE_NAMES),
+                       ("医疗品", MED_NAMES)):
+        for name in names.values():
+            if name:
+                pairs.add((cat, name))
+    # 投掷没有独立名单，词表里 kind == "thr" 的才是
+    for _kw, kind, name in KEYWORDS:
+        if name:
+            pairs.add((_KIND_TO_CAT.get(kind, "枪械"), name))
+    for vals in _cdata.WHITELIST_STEMS.values():
+        for cat, item in vals:
+            if item:
+                pairs.add((cat, item))
+    for _prefix, cat, item in _cdata.PREFIX_RULES:
+        if item:
+            pairs.add((cat, item))
+    for _regex, cat, item in _cdata.REGEX_RULES:
+        if item:
+            pairs.add((cat, item))
+    for cat, item in EXTRA_ITEMS:
+        pairs.add((cat, item))
+
+    out = {}
+    for cat, item in sorted(pairs):
+        out.setdefault(cat, [])
+        if item not in out[cat]:
+            out[cat].append(item)
+    _CATALOG_CACHE = out
+    return {k: list(v) for k, v in out.items()}
+
+
+def _normalize_item(category, item):
+    """把「不在自带目录里」的 item 归到空串 = 界面的「未指定」。
+
+    为什么需要：除地图外，每个分类的 item 都该是管理器认识的固定物品
+    （人物名、官方枪械型号、官方近战、医疗品…）。若分类器写出了表外的名字，
+    那它不是管理器能担保的物品 —— 典型是**某张地图/整合包自带的
+    自制近战**（脚本 `scripts/melee/xxx.txt` 的任意文件名，比如 pingpang、
+    onion、skateboard、tramontina）。这些名字只在那张图里成立，绝不能变成
+    全用户可见的子分类，否则目录会被别人的自制内容污染。
+
+    地图不在此列：它的 item 是扫出来的战役名，本来就因人而异。
+    """
+    if not item:
+        return ""
+    if category in _FREE_ITEM_CATS:
+        return item
+    cat = category_catalog()
+    return item if item in cat.get(category, ()) else ""
+
+
 def classify_paths(paths, addoninfo=None, mission=None, hint=""):
+    """分类入口：(category, item, tags)；item 只会是自带目录里的名字或空串。
+
+    所有出口都过一遍 `_normalize_item` —— 分类器内部仍允许把表外名字收进
+    集合（用于判定「这是什么类的东西」），但**对外只发布认得的物品名**。
+    """
+    category, item, tags = _classify_raw(paths, addoninfo=addoninfo,
+                                         mission=mission, hint=hint)
+    return (category, _normalize_item(category, item), tags)
+
+
+def _classify_raw(paths, addoninfo=None, mission=None, hint=""):
     """返回 (category, item, tags)。item 为空串表示多项/整体/不细分。"""
     paths = [p.lower() for p in paths]
     tags = []
@@ -390,8 +510,11 @@ def classify_paths(paths, addoninfo=None, mission=None, hint=""):
                     matched = True
             if not matched:
                 survivors.add("")  # 幸存者相关但未识别具体人物
-        elif p.startswith("models/weapons/melee/") or p.startswith("materials/models/weapons/melee/"):
-            # 近战模型有 w_（世界）/v_（第一人称）/w_melee_/v_melee_ 多种前缀
+        elif _is_melee_context(p):
+            # 近战模型有 w_（世界）/v_（第一人称）/w_melee_/v_melee_ 多种前缀。
+            # 只认官方 15 把；其余一律算「未指定」—— 自制近战（地图自带的
+            # pingpang / onion / skateboard …）不该变成全用户可见的子分类。
+            hit = ""
             for seg in p.split("/"):
                 stem = seg.split(".")[0]
                 for pfx in ("w_melee_", "v_melee_", "w_", "v_"):
@@ -399,12 +522,16 @@ def classify_paths(paths, addoninfo=None, mission=None, hint=""):
                         stem = stem[len(pfx):]
                         break
                 if stem in MELEE_NAMES:
-                    melee.add(MELEE_NAMES[stem])
-                elif stem.startswith("melee_"):
-                    melee.add(_display_name(MELEE_NAMES, stem[len("melee_"):]))
+                    hit = MELEE_NAMES[stem]
+                    break
+            if not hit:
+                hit = MELEE_NAMES.get(p.split("/")[-1].split(".")[0], "")
+            melee.add(hit)
         elif p.startswith("scripts/melee/"):
             fname = p.split("/")[-1]
-            melee.add(_display_name(MELEE_NAMES, fname[:-4] if fname.endswith(".txt") else fname))
+            stem = fname[:-4] if fname.endswith(".txt") else fname
+            # melee_manifest.txt 是脚本清单，不是武器本身；其余表外名字 = 自制近战。
+            melee.add(MELEE_NAMES.get(stem, ""))
         elif p.startswith("models/infected/") or p.startswith("materials/models/infected/"):
             matched = False
             for seg in p.split("/"):
@@ -576,6 +703,20 @@ def _is_weapon_context(p):
     )
 
 
+# 近战武器的模型/材质目录。自制近战普遍用 models/weapons/<作者>/melee/ 这种
+# 自定义子目录（广州增城是 models/weapons/gzzc/melee/），所以不能只认
+# models/weapons/melee/ 这个官方路径 —— 否则整包会掉进「枪械」。
+_MELEE_MAT_DIRS = ("models/weapons/melee/", "materials/models/weapons/melee/")
+
+
+def _is_melee_context(p):
+    if p.startswith(_MELEE_MAT_DIRS):
+        return True
+    if not p.startswith(("models/weapons/", "materials/models/weapons/")):
+        return False
+    return "/melee/" in p
+
+
 def _single_item(items):
     """集合只有一个非空元素时返回它，否则空串。"""
     nonempty = {i for i in items if i}
@@ -584,10 +725,6 @@ def _single_item(items):
     if len(nonempty) == 1:
         return next(iter(nonempty))
     return ""
-
-
-def _display_name(table, token):
-    return table.get(token, token)
 
 
 def _flag(addoninfo, key):

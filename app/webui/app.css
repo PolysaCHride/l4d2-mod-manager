@@ -899,3 +899,64 @@ body.is-maximized .app {
   height: 32px;
   width: 42px;
 }
+
+/* ---------------------------------------------------------- 同组互斥开关
+   放在排序按钮左侧。开＝整块 accent 底 + accent-ink 字（和已启用卡片同色系），
+   关＝透明底 + 灰描边。读作「同组互斥 [开]」，关掉时图标换成开锁。 */
+.mutex-btn {
+  height: 27px; padding: 0 10px;
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid #262c33; border-radius: 3px;
+  color: #7b857d; font-size: 10.5px; white-space: nowrap;
+}
+.mutex-btn svg { width: 13px; height: 13px; }
+.mutex-btn:hover { border-color: #3f4a35; color: #d3dbcc; }
+.mutex-btn.on {
+  color: var(--accent-ink); background: var(--accent); border-color: var(--accent);
+}
+.mutex-btn.on:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
+.mutex-btn.on svg { stroke-width: 2.1; }
+
+/* 排序下拉栏。向下弹出、右对齐按钮右边缘，和 .more-menu 同一套视觉。 */
+.sort-wrap { position: relative; }
+.sort-menu {
+  position: absolute; right: 0; top: 31px; z-index: 9;
+  min-width: 148px; padding: 4px;
+  border: 1px solid #2c332c; border-radius: 5px; background: #121612;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
+}
+.sort-menu button {
+  display: flex; align-items: center; gap: 7px;
+  width: 100%; padding: 6px 8px; border-radius: 3px;
+  color: #aab4a5; font-size: 10px; text-align: left;
+}
+.sort-menu button:hover { background: #1a2117; color: #e4ebdf; }
+.sort-menu button.is-cur { color: var(--accent); }
+.sort-menu .tick { width: 11px; height: 11px; flex: none; opacity: 0; }
+.sort-menu button.is-cur .tick { opacity: 1; }
+
+/* ---------------------------------------------------------- 冲突收敛弹窗 */
+.cf-list {
+  margin-top: 10px; max-height: 260px; overflow-y: auto;
+  border: 1px solid #232a2b; border-radius: 4px;
+}
+.cf-group { padding: 8px 10px; border-bottom: 1px solid #1e2422; }
+.cf-group:last-child { border-bottom: 0; }
+.cf-head {
+  color: #6f7a6f; font-size: 9px; letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.cf-row {
+  display: flex; align-items: center; gap: 6px;
+  margin-top: 4px; font-size: 10.5px;
+}
+.cf-row i {
+  width: 5px; height: 5px; flex: none; border-radius: 50%; background: #3a4136;
+}
+.cf-row span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cf-row em {
+  flex: none; color: #5b655c; font-size: 9px; font-style: normal;
+}
+.cf-row.keep { color: var(--accent); }
+.cf-row.keep i { background: var(--accent); }
+.cf-row.drop { color: #6f7a6f; text-decoration: line-through; }

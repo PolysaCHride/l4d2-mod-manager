@@ -74,7 +74,8 @@
                 proxy: '', archiver_path: '', palette: 'blacksite', motion: true },
     paths: { addons: 'E:\\SteamLibrary\\steamapps\\common\\Left 4 Dead 2\\left4dead2\\addons',
              valid: true },
-    version: '1.2.1',
+    version: '1.3',
+    mutex: true,      // 同组互斥开关（后面 set_mutex 会改它）
   };
 
   // pywebview 异步注入。两个坑：
@@ -129,6 +130,26 @@
     waitForPy(3000);
   });
 
+  /** 浏览器模式：现算一遍冲突组，让「打开互斥」那个弹窗也能在浏览器里看到。 */
+  function mockConflictGroups() {
+    const KEY_CATS = ['角色', '特感', '枪械', '近战', '医疗品', '投掷'];
+    const groups = {};
+    MOCK.mods.forEach((m) => {
+      if (!m.enabled) return;
+      if (!m.item || KEY_CATS.indexOf(m.category) < 0) return;
+      const key = m.category + '\u0000' + m.item;
+      (groups[key] = groups[key] || []).push(m);
+    });
+    const brief = (m) => ({ file: m.file, title: m.alias || m.title || m.file,
+                            enabled: !!m.enabled });
+    return Object.keys(groups).sort().map((k) => {
+      const members = groups[k].slice().sort((a, b) =>
+        String(a.alias || a.title).localeCompare(String(b.alias || b.title), 'zh'));
+      const [category, item] = k.split('\u0000');
+      return { category, item, winner: brief(members[0]), members: members.map(brief) };
+    }).filter((g) => g.members.length > 1);
+  }
+
   function mockBootstrap() {
     const mods = MOCK.mods;
     return {
@@ -140,6 +161,8 @@
       catalog: Object.assign({}, MOCK.catalog),
       game: { running: false },
       paths: Object.assign({}, MOCK.paths),
+      mutex: MOCK.mutex !== false,
+      conflicts: mockConflictGroups(),
       version: MOCK.version,
     };
   }
@@ -249,6 +272,39 @@
       if (!m) return { ok: false, error: '找不到模组' };
       m.enabled = !!enabled;
       return { ok: true, enabled: m.enabled, disabled_siblings: [] };
+    },
+
+    // 同组互斥开关（后端 settings.mutex）
+    get_mutex: async () => {
+      const res = await call('get_mutex');
+      if (res) return res;
+      // mock：从本批次内存里现算冲突组，让浏览器里也能看到那个弹窗
+      return { ok: true, mutex: MOCK.mutex !== false, groups: mockConflictGroups() };
+    },
+
+    set_mutex: async (enabled) => {
+      const res = await call('set_mutex', enabled);
+      if (res) return res;
+      MOCK.mutex = !!enabled;
+      return { ok: true, mutex: MOCK.mutex, groups: mockConflictGroups() };
+    },
+
+    resolve_conflicts: async () => {
+      const res = await call('resolve_conflicts');
+      if (res) return res;
+      const disabled = [];
+      mockConflictGroups().forEach((g) => {
+        const keep = (g.winner || {}).file;
+        g.members.forEach((m) => {
+          const rec = MOCK.mods.find((x) => x.file === m.file);
+          if (!rec) return;
+          const want = rec.file === keep;
+          if (rec.enabled && !want) disabled.push(rec.file);
+          rec.enabled = want;
+        });
+      });
+      return { ok: true, disabled, count: disabled.length,
+               mods: MOCK.mods.slice() };
     },
 
     set_alias: async (file, alias) => {
@@ -406,7 +462,7 @@
     check_update: async () => {
       const res = await call('check_update');
       if (res) return res;
-      return { ok: true, latest: '1.2.1', url: '' };
+      return { ok: true, latest: '1.3', url: '' };
     },
     set_palette: async (name) => {
       const res = await call('set_palette', name);

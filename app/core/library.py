@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""mod 库管理：扫描、启停（同物品互斥）、别名/归类、删除、工坊订阅迁移。
+"""mod 库管理：扫描、启停（同物品互斥，可开关）、别名/归类、删除、工坊订阅迁移。
 
 事实源是磁盘文件 + addonlist.txt；JSON 库为缓存。
 启用/禁用只改写 addonlist.txt 的 "1"/"0"，mod 文件始终留在 addons 顶层。
@@ -12,9 +12,29 @@ from . import vpk as vpkmod
 from . import classify as clf
 from .addonlist import AddonList
 from .importer import _part_kind, _part_target_name
-from .store import mod_name_sort_key, new_mod_record
+from .store import mod_display_name, mod_name_sort_key, new_mod_record
 
 WS_KEY_PREFIX = "workshop\\"
+
+
+def conflict_key(rec):
+    """互斥组键 `(分类, 物品)`；这个模组不参与互斥时返回 None。
+
+    参与条件（三条全满足）：
+      · 分类在 `clf.CONFLICT_CATEGORIES` 里（角色/特感/枪械/近战/医疗品/投掷）
+        —— 这些是「同一物品换同一份资源」的外观类，同时启用只有最后一个生效；
+        地图/音效/UI 等是叠加型内容，本来就能共存。
+      · `item` 非空 —— 「未指定」是个垃圾桶，里面可能是完全不同的东西
+        （一个 UI 皮肤 + 一个音效包），强行互斥会误伤。
+      · 记录本身存在。
+    """
+    if not rec:
+        return None
+    cat = rec.get("category")
+    item = rec.get("item")
+    if not item or cat not in clf.CONFLICT_CATEGORIES:
+        return None
+    return (cat, item)
 
 
 class LibraryError(Exception):
@@ -410,7 +430,13 @@ class Library(object):
     def set_enabled(self, file_name, enabled, mutex=True):
         """启用 = addonlist 记 "1"；禁用 = addonlist 记 "0"。mod 文件不移动。
 
-        enabled=True 且该 mod 属于具体物品时，自动把同物品其余 mod 记为 "0"。
+        `mutex=True`（界面上的「同组互斥」开关打开）且本次是**启用**时，
+        会把同 `(分类, 物品)` 其余已启用的模组一并记为 "0"，并把它们的文件名
+        作为返回值交出去，让界面能说清「顺带停用了谁」。
+
+        互斥只作用于 `CONFLICT_CATEGORIES` 里那些外观类、且 item 非空的模组
+        （见 `conflict_key`）。地图 / 音效 / UI 等叠加型内容不互斥，
+        「未指定」也不互斥。
         """
         rec = self.store.get_mod(file_name)
         if rec is None:
@@ -418,20 +444,19 @@ class Library(object):
         if not os.path.isfile(os.path.join(self.paths.addons_dir, file_name)):
             raise LibraryError("mod 文件不存在: " + file_name)
         disabled = []
+        key = conflict_key(rec) if (enabled and mutex) else None
 
         def mutate(al):
             al.set(file_name, "1" if enabled else "0")
-            # 互斥只作用于外观类（同物品替换同一资源）；地图等叠加型内容不互斥
-            if (enabled and mutex and rec.get("item")
-                    and rec.get("category") in clf.CONFLICT_CATEGORIES):
-                for other in list(self.store.mods().values()):
-                    if (other["file"] != file_name
-                            and other.get("category") == rec["category"]
-                            and other.get("item") == rec["item"]
-                            and other.get("enabled")):
-                        al.set(other["file"], "0")
-                        other["enabled"] = False
-                        disabled.append(other["file"])
+            if key is None:
+                return
+            for other in list(self.store.mods().values()):
+                if (other["file"] != file_name
+                        and conflict_key(other) == key
+                        and other.get("enabled")):
+                    al.set(other["file"], "0")
+                    other["enabled"] = False
+                    disabled.append(other["file"])
 
         self._save_addonlist(mutate)
         rec["enabled"] = enabled
@@ -639,32 +664,83 @@ class Library(object):
         self.store.save_library()
         return rec
 
-    def enable_new_mods(self, file_names):
-        """批量启用新入库的 mod，返回被自动禁用的文件名。
+    def enable_new_mods(self, file_names, mutex=False):
+        """批量启用新入库的 mod，返回被自动停用的文件名列表。
 
-        ⚠️ 2026-11-20 起**不再做互斥**（用户要求自行管理冲突）：
-        新模组只是被设为启用，**不会**再自动停用同组的旧模组。
-        因此返回值恒为空列表 —— 保留这个返回类型是为了兼容调用方。
+        `mutex=False`（界面上的「同组互斥」关着）：
+            全部设为启用，谁也不动。返回值恒为空。
 
-        历史行为（已移除）：同一互斥组只保留最后入库的一个，
-        其余已启用的自动记为 "0"。那会让「下载一个新皮肤，旧皮肤被静默关掉」。
+        `mutex=True`（开关打开）：按用户 2026-11-22 裁定的三条规则：
+          1. 某个互斥组在这次导入**之前**已经有启用项 → 这批里的同组新模组
+             **只入库不启用**（用户已明确表示过用哪个，新来的不顶掉它）。
+          2. 某个互斥组之前一个启用项都没有 → 这批里的同组模组**自动启用**，
+             但一组只留一个，按**名称排序取第一个**（确定性最强，和 v1.2.1 一致）。
+          3. 不参与互斥的分类（地图/音效/UI/未指定…）照旧全部启用。
+
+        注意「之前」的判定：先把本批文件从 `enabled` 视图里排除，再判断组里
+        是否还有别的启用项。否则同批第二个模组会把第一个当成「已有启用」。
         """
         names = [str(name) for name in file_names if name]
         if not names:
             return []
         al = AddonList.load(self.paths.addonlist_file)
+        batch = set(names)
+
+        # 每个互斥组在这次导入之前是否已经有人启用
+        pre_enabled = {}
+        if mutex:
+            for other in list(self.store.mods().values()):
+                if other["file"] in batch or not other.get("enabled"):
+                    continue
+                key = conflict_key(other)
+                if key is not None:
+                    pre_enabled[key] = True
+
+        # 同批里按组挑一个「赢家」：名称排序第一个
+        winners = {}
+        if mutex:
+            groups = {}
+            for name in names:
+                key = conflict_key(self.store.get_mod(name))
+                if key is not None:
+                    groups.setdefault(key, []).append(name)
+            for key, files in groups.items():
+                if pre_enabled.get(key):
+                    continue                    # 组里已有用户的选择，本批全部不启用
+                ordered = sorted(
+                    files,
+                    key=lambda f: mod_name_sort_key(self.store.get_mod(f) or {"file": f}))
+                winners[key] = ordered[0]       # 名称第一个
+
+        disabled = []
         for name in names:
             rec = self.store.get_mod(name)
             if rec is None:
                 continue
-            al.set(name, "1")
-            rec["enabled"] = True
+            key = conflict_key(rec)
+            enable = True
+            if mutex and key is not None:
+                enable = (winners.get(key) == name)
+                if not enable and rec.get("enabled"):
+                    disabled.append(name)
+            al.set(name, "1" if enable else "0")
+            rec["enabled"] = enable
+            if mutex and enable and key is not None:
+                # 组内其余已启用的（含本批之外的老模组）一并停用 ——
+                # 只在「组里之前没人启用」的分支才会走到这里，
+                # 所以这里实际最多命中同一批的落选者，不会误伤用户的选择。
+                for other in list(self.store.mods().values()):
+                    if (other["file"] != name and conflict_key(other) == key
+                            and other.get("enabled")):
+                        al.set(other["file"], "0")
+                        other["enabled"] = False
+                        disabled.append(other["file"])
         al.save(self.paths.addonlist_file)
         self.store.save_library()
-        return []
+        return disabled
 
     # ---------- 一键纳入管理 ----------
-    def adopt_all(self, progress=None):
+    def adopt_all(self, progress=None, mutex=False):
         """递归扫描 addons 目录，把所有 vpk 纳入管理策略。
 
         - 顶层未登记文件：补记 addonlist（值 "1"，保持游戏当前加载行为）
@@ -764,12 +840,87 @@ class Library(object):
             al.set(name, "1")
             stats["adopted"] += 1
 
-        # ⚠️ 2026-11-20 起不再做冲突收敛（用户要求自行管理）：
-        # 原来这里调 _settle_conflict_selections，把每个互斥组强制裁到只剩一个启用，
-        # 其余写成 "0"。整理是「把文件纳入管理」，不该顺手改用户的启用选择。
-        # 两个 stats 字段保留（恒为 0），避免外部消费方拿不到 key。
-        stats["auto_disabled"] = 0
-        stats["auto_enabled"] = 0
+        # 2026-11-22：互斥回归，但**由界面开关决定**（用户裁定「以管理器自己的
+        # addonlist 快照为准，冲突时以管理器为第一视角」）。
+        # 开关打开时，整理会把每个互斥组收敛到一个启用项：
+        #   · 组里原本就记着启用的那些 → 保留（多个时取名称排序第一个）
+        #   · 组里一个都没启用 → 保持全停用，不主动帮你开
+        # 只改启用状态，不动任何文件。
+        if mutex:
+            disabled, enabled_extra = self._settle_conflicts(al)
+            stats["auto_disabled"] = len(disabled)
+            stats["auto_enabled"] = len(enabled_extra)
+        else:
+            stats["auto_disabled"] = 0
+            stats["auto_enabled"] = 0
         al.save(self.paths.addonlist_file)
         self.store.save_library()
         return stats
+
+    def _settle_conflicts(self, al):
+        """把每个互斥组收敛到只剩一个启用项，返回 (被停用, 被启用) 文件名列表。
+
+        取舍规则（用户 2026-11-22 裁定「保留管理器原本记着启用的那个」）：
+          1. 组里只有一个启用项 → 不动它；
+          2. 组里有多个启用项 → 取名称排序第一个，其余写 "0"；
+          3. 组里一个都没启用 → 全组保持停用，**不主动启用任何东西**
+             （整理是「接管现有文件」，不是「帮你开始玩」）。
+        """
+        groups = {}
+        for rec in list(self.store.mods().values()):
+            key = conflict_key(rec)
+            if key is None:
+                continue
+            groups.setdefault(key, []).append(rec)
+
+        disabled, enabled_extra = [], []
+        for key, members in groups.items():
+            active = [r for r in members if r.get("enabled")]
+            if len(active) <= 1:
+                continue                      # 0 个或 1 个都无需收敛
+            winner = sorted(active, key=mod_name_sort_key)[0]
+            for rec in active:
+                if rec["file"] == winner["file"]:
+                    continue
+                al.set(rec["file"], "0")
+                rec["enabled"] = False
+                disabled.append(rec["file"])
+        return disabled, enabled_extra
+
+    def conflict_groups(self):
+        """列出**当前存在冲突**的互斥组（一组里两个及以上启用）。
+
+        返回 [{category, item, winner, losers:[{file,title,alias}...]}]，
+        供界面在打开「同组互斥」开关时先算一遍、让用户确认要停用哪些。
+        `winner` 的取舍与 `_settle_conflicts` 完全一致（名称排序第一个），
+        这样弹窗里说「将启用 X」和真正执行后的结果不可能对不上。
+        """
+        groups = {}
+        for rec in list(self.store.mods().values()):
+            if not rec.get("enabled"):
+                continue
+            key = conflict_key(rec)
+            if key is None:
+                continue
+            groups.setdefault(key, []).append(rec)
+
+        out = []
+        for key in sorted(groups):
+            members = groups[key]
+            if len(members) < 2:
+                continue
+            ordered = sorted(members, key=mod_name_sort_key)
+            winner = ordered[0]
+
+            def _brief(r):
+                return {"file": r["file"],
+                        "title": mod_display_name(r),
+                        "enabled": bool(r.get("enabled"))}
+
+            out.append({
+                "category": key[0],
+                "item": key[1],
+                "winner": _brief(winner),
+                "members": [_brief(r) for r in ordered],
+            })
+        return out

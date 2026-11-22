@@ -392,8 +392,13 @@ def _unique_target_stem(addons_dir, stem, reserved):
     raise ImporterError("重名过多: " + stem)
 
 
-def commit_staged(batch, library, candidates=None, progress=None):
-    """把用户勾选的暂存 mod 复制入库。返回新 mod 记录。"""
+def commit_staged(batch, library, candidates=None, progress=None, mutex=False):
+    """把用户勾选的暂存 mod 复制入库。返回新 mod 记录。
+
+    `mutex=True` 时同一批里的互斥组按名称取第一个启用；某组在导入前已有
+    启用项则这批只入库不启用（不顶掉用户已经做出的选择）。见
+    `library.enable_new_mods`。
+    """
     selected = candidates
     if selected is None:
         selected = [c for c in batch.get("candidates", []) if c.get("selected")]
@@ -448,8 +453,9 @@ def commit_staged(batch, library, candidates=None, progress=None):
         rec["item"] = candidate["item"]
         rec["tags"] = candidate["tags"]
         results.append(rec)
-    # 导入后默认启用；同物品互斥组按候选顺序切换到最后一个（最新加入）mod
-    library.enable_new_mods([rec["file"] for rec in results])
+    # 导入后默认启用。互斥开关打开时由 enable_new_mods 按规则决定：
+    # 组里已有启用项 → 本批不启用；组里全空 → 一组只启用名称第一个。
+    library.enable_new_mods([rec["file"] for rec in results], mutex=mutex)
     return results
 
 

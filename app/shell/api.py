@@ -27,7 +27,7 @@ from app.shell import tasks  # noqa: E402
 from app.shell.fmt import fmt_size  # noqa: E402
 from app.shell.jobs import JobRunner  # noqa: E402
 
-APP_VERSION = "1.2.1"
+APP_VERSION = "1.3"
 # 与 app/core/game.py 的 GAME_EXE 保持一致（core 冻结，只能抄一份常量）
 _GAME_EXE = "left4dead2.exe"
 REPO_SLUG = "PolysaCHride/l4d2-mod-manager"
@@ -265,10 +265,13 @@ _CATALOG = None
 def _category_catalog():
     """分类 → 该分类下**可能出现的全部子分类**（含目前没有模组的那种）。
 
-    名字不是手抄的：全部来自 `app/core/classify.py` 与 `classify_data.py`
-    的词表 —— 那才是分类器真正会写进 `item` 的值（`WHITELIST_STEMS`
-    的每条规则、前缀/正则规则、以及人物/武器/近战/医疗的名单）。
-    UI 自己再抄一份迟早会漂：新武器忘了加、同一把枪两种叫法。
+    名字不是手抄的：直接取 `app/core/classify.category_catalog()` —— 那是
+    分类器真正会写进 `item` 的值，也是「管理器自带子分类」的唯一定义。
+
+    ★ 2026-11-21：这份逻辑原来在 shell 里重抄了一遍（自己再拼 WHITELIST /
+    PREFIX / REGEX / 各张名单），于是出现两套真相：core 里删掉的自制近战
+    还在目录里、分类器能写出的「前置/框架」「音乐」又不在目录里。现在只留
+    core 那一份，shell 只负责转发 + 异常兜底。
 
     为什么要它：分类器只给自己的结果，`bootstrap` 只带**库里出现过**的值，
     于是「特感」里只剩 Tank / 普通感染者，Hunter 那些一个都看不见 ——
@@ -277,42 +280,12 @@ def _category_catalog():
     global _CATALOG
     if _CATALOG is not None:
         return _CATALOG
-    pairs = set()
     try:
         from app.core import classify as C
-        from app.core import classify_data as D
-
-        for vals in D.WHITELIST_STEMS.values():
-            for cat, item in vals:
-                if item:
-                    pairs.add((cat, item))
-        for _prefix, cat, item in D.PREFIX_RULES:
-            if item:
-                pairs.add((cat, item))
-        for _regex, cat, item in D.REGEX_RULES:
-            if item:
-                pairs.add((cat, item))
-        for cat, names in (("角色", C.SURVIVOR_NAMES), ("特感", C.SPECIAL_NAMES),
-                           ("枪械", C.WEAPON_SEG_NAMES), ("近战", C.MELEE_NAMES),
-                           ("医疗品", C.MED_NAMES)):
-            for name in names.values():
-                if name:
-                    pairs.add((cat, name))
-        # 投掷没有单独的名单：词表里 kind == "thr" 的才是
-        for _kw, kind, name in C.KEYWORDS:
-            if kind == "thr" and name:
-                pairs.add(("投掷", name))
+        _CATALOG = C.category_catalog()
     except Exception as exc:      # core 词表改结构时别把启动搞挂
         print("[shell] 读取分类词表失败：%s" % exc, file=sys.stderr)
         _CATALOG = {}
-        return _CATALOG
-
-    out = {}
-    for cat, item in sorted(pairs):
-        out.setdefault(cat, [])
-        if item not in out[cat]:
-            out[cat].append(item)
-    _CATALOG = out
     return _CATALOG
 
 
@@ -530,6 +503,12 @@ class Api(object):
                 # 分类 → 全部可能的子分类。用来把「没有模组的子分类」也画出来
                 # （特感只有 2 个的时候，用户会以为分类坏了）。
                 catalog=_category_catalog(),
+                # 同组互斥开关（默认开）+ 当前存量冲突，界面一次拿全。
+                # 冲突组只在开关打开时需要，但这里总是算 —— 200 条记录的开销
+                # 可以忽略（一次分组，不读盘），换来前端不用二次请求。
+                mutex=self._mutex_enabled(),
+                conflicts=(self._library.conflict_groups()
+                           if self._library is not None else []),
                 paths={
                     "addons": gp.addons_dir if gp else "",
                     "valid": bool(gp and gp.valid()),
@@ -557,10 +536,12 @@ class Api(object):
     def toggle_mod(self, file_name, enabled):
         """启用/停用。
 
-        ⚠️ 2026-11-20 起**不做互斥**：启用一个模组不会自动停用同组其它模组，
-        由用户自行管理冲突（用户明确要求）。所以：
-          · 固定传 mutex=False
-          · disabled_siblings 恒为空列表（字段保留，旧前端不会炸）
+        2026-11-22 起互斥**由界面开关决定**（`settings.mutex`，默认开）：
+          · 开：启用 A 会把同 `(分类, 物品)` 里已启用的其它模组一并停用，
+                 被停用的文件名放在 `disabled_siblings` 里，让界面能说清
+                 「顺带停用了谁」；
+          · 关：启用就是启用，不动任何人。
+        停用永远不影响其它模组。
         """
         try:
             self._ensure()
@@ -571,8 +552,82 @@ class Api(object):
                 return _err("未配置游戏目录")
 
             enabled = bool(enabled)
-            self._library.set_enabled(file_name, enabled, mutex=False)
-            return _ok(enabled=enabled, disabled_siblings=[])
+            mutex = self._mutex_enabled()
+            disabled = self._library.set_enabled(file_name, enabled, mutex=mutex)
+            return _ok(enabled=enabled, disabled_siblings=list(disabled or []),
+                       mutex=mutex)
+        except Exception as exc:
+            return _err(exc)
+
+    # ---------------------------------------------------------------- 互斥开关
+
+    def _mutex_enabled(self):
+        """同组互斥开关的当前值。没存过就是 True（新老用户都按旧行为起步）。"""
+        try:
+            self._ensure()
+            if self._store is None:
+                return True
+            raw = self._store.settings().get("mutex", None)
+            if raw is None:
+                return True
+            return bool(raw)
+        except Exception:
+            return True
+
+    def get_mutex(self):
+        """读开关 + 当前存量冲突。打开开关前界面用它先算一遍。"""
+        try:
+            self._ensure()
+            enabled = self._mutex_enabled()
+            groups = []
+            if self._library is not None:
+                groups = self._library.conflict_groups()
+            return _ok(mutex=enabled, groups=groups)
+        except Exception as exc:
+            return _err(exc)
+
+    def set_mutex(self, enabled):
+        """写开关，返回写后的值。
+
+        `enabled=True` 时**不自动收敛**已有的冲突 —— 界面必须先拿
+        `get_mutex()` 算一遍、让用户看清要停用哪些，再单独调
+        `resolve_conflicts()`。这样「打开开关」和「真的改了启用状态」
+        是两个明确分开的动作。
+        """
+        try:
+            self._ensure()
+            if self._store is None:
+                return _err("数据目录不可用")
+            self._store.set_setting("mutex", bool(enabled))
+            groups = []
+            if self._library is not None:
+                groups = self._library.conflict_groups()
+            return _ok(mutex=bool(enabled), groups=groups)
+        except Exception as exc:
+            return _err(exc)
+
+    def resolve_conflicts(self):
+        """把当前所有冲突组收敛到一个启用项（保留名称排序第一个）。
+
+        这是用户在弹窗里点「默认启用」时执行的那一步：只改 addonlist 与库里的
+        enabled 字段，**不动文件**。返回被停用的文件名列表，方便界面说明。
+        """
+        try:
+            self._ensure()
+            if self._library is None:
+                return _err("未配置游戏目录")
+            if self._game_running():
+                return _err("游戏运行中，无法修改模组配置，请先退出游戏。")
+
+            lib = self._library
+            from app.core.addonlist import AddonList
+            al = AddonList.load(lib.paths.addonlist_file)
+            disabled, _enabled = lib._settle_conflicts(al)
+            al.save(lib.paths.addonlist_file)
+            lib.store.save_library()
+            mods = self._all_mods()
+            self._emit("mods.changed", {"mods": mods})
+            return _ok(disabled=disabled, count=len(disabled), mods=mods)
         except Exception as exc:
             return _err(exc)
 
@@ -717,7 +772,7 @@ class Api(object):
                 return _err("无法确认游戏是否运行，为安全起见已取消整理")
 
             def run(job):
-                stats = tasks.adopt_all(job, self._library)
+                stats = tasks.adopt_all(job, self._library, mutex=self._mutex_enabled())
                 mods = self._all_mods()
                 self._emit("mods.changed", {"mods": mods})
                 job.done(stats if isinstance(stats, dict) else {})
@@ -806,7 +861,8 @@ class Api(object):
 
             def run(job):
                 try:
-                    records = tasks.commit_import(job, self._library, batch, picked)
+                    records = tasks.commit_import(job, self._library, batch, picked,
+                                                  mutex=self._mutex_enabled())
                     self._emit("mods.changed", {"mods": self._all_mods()})
                     job.done({"imported": len(records)})
                 finally:
@@ -856,7 +912,8 @@ class Api(object):
                 return _err("没有选择要下载的物品")
 
             def run(job):
-                result = tasks.download(job, self._store, self._library, ids, collection)
+                result = tasks.download(job, self._store, self._library, ids, collection,
+                                        mutex=self._mutex_enabled())
                 self._emit("mods.changed", {"mods": self._all_mods()})
                 job.done(result or {})
 

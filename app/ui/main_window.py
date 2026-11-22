@@ -37,7 +37,7 @@ from .components import (
 from .workers import DetailsWorker, DownloadWorker, ScanWorker, UpdateCheckWorker
 
 APP_TITLE = "L4D2 MOD 军械库"
-APP_VERSION = "1.2.1"
+APP_VERSION = "1.3"
 # 项目仓库主页（设置页展示为超链接，检查更新基于它的 releases/latest）
 REPO_URL = "https://github.com/PolysaCHride/l4d2-mod-manager"
 CARD_W, CARD_H = 230, 234

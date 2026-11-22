@@ -137,10 +137,93 @@ class TestNoRegression(unittest.TestCase):
 class TestVersionBumped(unittest.TestCase):
     """改了分类规则就必须 +1，否则老记录永远用旧分类。"""
 
-    def test_clf_version_is_16_or_later(self):
+    def test_clf_version_is_17_or_later(self):
         self.assertGreaterEqual(
-            clf.CLF_VERSION, 16,
+            clf.CLF_VERSION, 17,
             "改了分类规则必须提升 CLF_VERSION，否则已有模组不会重算分类")
+
+
+class TestCustomMeleeIsUnspecified(unittest.TestCase):
+    """自制近战不能变成内置子分类。
+
+    真实案例（2026-11-21，真实库 200 个模组实测）：广州增城 v7.3 与另一版
+    整合包里带了一整套自制近战 —— `scripts/melee/{pingpang,onion,chair,
+    caidao,hammer,wrench}.txt` + `models/weapons/gzzc/melee/`。这些只在那张
+    地图里成立，**不能**出现在所有用户的「近战」侧栏里。
+
+    判定标准：分类仍是「近战」（用户能理解这是什么），但 item 必须是空串，
+    也就是界面上的「未指定」—— 不是别人家的武器名。
+    """
+
+    def test_custom_melee_scripts_are_unspecified(self):
+        for name in ("pingpang", "onion", "chair", "caidao", "hammer",
+                     "wrench", "skateboard", "tramontina"):
+            c, item, _ = clf.classify_paths(["scripts/melee/%s.txt" % name])
+            self.assertEqual(c, "近战", name)
+            self.assertEqual(item, "", "自制近战 %s 不该成为子分类" % name)
+
+    def test_custom_melee_models_are_unspecified(self):
+        """自定义目录 models/weapons/<作者>/melee/ 也要进近战分支（不是枪械）。"""
+        for p in ("models/weapons/gzzc/melee/w_pingpang.mdl",
+                  "materials/models/weapons/gzzc/melee/w_skateboard.vtf"):
+            c, item, _ = clf.classify_paths([p])
+            self.assertEqual(c, "近战", p)
+            self.assertEqual(item, "", p)
+
+    def test_melee_manifest_is_not_a_weapon(self):
+        """melee_manifest.txt 是脚本清单，不该被当成一件武器写进 item。"""
+        c, item, _ = clf.classify_paths(["scripts/melee/melee_manifest.txt"])
+        self.assertEqual(c, "近战")
+        self.assertEqual(item, "")
+
+    def test_manifest_does_not_wipe_known_item(self):
+        """带清单的自制近战包：仍能认出官方那把的名字。"""
+        c, item, _ = clf.classify_paths([
+            "scripts/melee/crowbar.txt",
+            "scripts/melee/melee_manifest.txt",
+            "models/weapons/melee/w_crowbar.mdl",
+        ])
+        self.assertEqual((c, item), ("近战", "撬棍"))
+
+    def test_official_melee_still_named(self):
+        for name, disp in (("frying_pan", "平底锅"), ("katana", "武士刀"),
+                           ("machete", "砍刀"), ("golfclub", "高尔夫球杆")):
+            c, item, _ = clf.classify_paths(["scripts/melee/%s.txt" % name])
+            self.assertEqual((c, item), ("近战", disp), name)
+
+
+class TestCatalogIsManagerOwned(unittest.TestCase):
+    """自带目录 = 分发给所有用户的子分类清单，不许混进自制内容。"""
+
+    def test_melee_catalog_is_official_only(self):
+        cat = clf.category_catalog()
+        melee = set(cat["近战"])
+        for bad in ("洋葱", "乒乓球拍", "椅子", "菜刀", "锤子", "扳手",
+                    "柜子", "西瓜皮"):
+            self.assertNotIn(bad, melee, "「%s」是某张图的自制近战" % bad)
+        # 官方 15 把（含电锯、防暴盾）必须都在
+        for good in ("撬棍", "消防斧", "武士刀", "砍刀", "棒球棒", "平底锅",
+                     "电吉他", "警棍", "高尔夫球杆", "板球棒", "小刀", "草叉",
+                     "铁锹", "防暴盾", "电锯"):
+            self.assertIn(good, melee, "官方近战「%s」不该消失" % good)
+
+    def test_catalog_covers_every_emittable_item(self):
+        """分类器写得出、目录里却没有的名字 = 只会从库里冒出来的孤儿项。
+
+        真实踩过的：`前置/框架`（框架包识别）与 `音乐`（音效音乐分类）
+        都直接由 classify_paths 产出，却不在目录里 —— 空库时树上没有、
+        有模组时才冒出来，看起来像分类坏了。
+        """
+        cat = clf.category_catalog()
+        for c, i in (("杂项", "前置/框架"), ("音效音乐", "音乐")):
+            self.assertIn(i, cat.get(c, []), "「%s」由分类器产生，目录里必须有" % i)
+
+    def test_catalog_survives_without_whitelist_crash(self):
+        """目录里每一项都是非空字符串、且该分类下不重复。"""
+        for c, items in clf.category_catalog().items():
+            self.assertEqual(len(items), len(set(items)), c)
+            for it in items:
+                self.assertTrue(it.strip(), "%s 里有空名字" % c)
 
 
 class TestAddonInfoKeyCasing(unittest.TestCase):

@@ -41,30 +41,48 @@ window.__t = null;
   try {
     // 找一个当前未启用的角色模组
     const all = await window.bridge.bootstrap();
-    const pool = all.mods.filter(m => m.category === '角色' && !m.enabled);
+    const poolNonConflict = all.mods.filter(m =>
+      m.category === '角色' && !m.enabled && !m.item);   // item 为空 = 不参与互斥
+    const pool = poolNonConflict.length ? poolNonConflict
+      : all.mods.filter(m => m.category === '角色' && !m.enabled);
     if (!pool.length) { out.error = '没有可用的未启用角色模组'; window.__t = JSON.stringify(out); return; }
     const target = pool[0];
     out.file = target.file;
     out.title = target.title;
+    out.nonConflict = !target.item;
 
-    // 第一次：启用
-    const r1 = await window.bridge.toggle_mod(target.file, true);
-    out.steps.push({step: 'enable', ok: r1.ok, enabled: r1.enabled,
-                    siblings: (r1.disabled_siblings || []).length});
+    // 先读「开互斥」的开关状态，验证时把它关掉 —— 否则启用 A 会顺带停用同组 B，
+    // 再停用 A 也**不会**把 B 放回来，两轮 toggle 就不是「回到原状」了。
+    // （2026-11-22 互斥回归后新增的坑：这个探针原来假设「toggle 两次等于没动」。）
+    const before = await window.bridge.get_mutex();
+    const wasMutex = !!(before && before.mutex);
+    if (wasMutex) await window.bridge.set_mutex(false);
 
-    const b2 = await window.bridge.bootstrap();
-    const m2 = b2.mods.find(m => m.file === target.file);
-    out.enabledAfter = m2 ? m2.enabled : null;
+    let r1 = null, r2 = null;
+    try {
+      // 第一次：启用
+      r1 = await window.bridge.toggle_mod(target.file, true);
+      out.steps.push({step: 'enable', ok: r1.ok, enabled: r1.enabled,
+                      siblings: (r1.disabled_siblings || []).length});
 
-    // 第二次：停用，恢复原状
-    const r2 = await window.bridge.toggle_mod(target.file, false);
-    out.steps.push({step: 'disable', ok: r2.ok, enabled: r2.enabled});
+      const b2 = await window.bridge.bootstrap();
+      const m2 = b2.mods.find(m => m.file === target.file);
+      out.enabledAfter = m2 ? m2.enabled : null;
+
+      // 第二次：停用，恢复原状
+      r2 = await window.bridge.toggle_mod(target.file, false);
+      out.steps.push({step: 'disable', ok: r2.ok, enabled: r2.enabled});
+    } finally {
+      // 无论成败都把开关恢复原值 —— 探针绝不能改用户的设置
+      if (wasMutex) await window.bridge.set_mutex(true);
+    }
 
     const b3 = await window.bridge.bootstrap();
     const m3 = b3.mods.find(m => m.file === target.file);
     out.restored = m3 ? !m3.enabled : null;
+    out.mutexRestored = !!(await window.bridge.get_mutex()).mutex === wasMutex;
 
-    out.pass = out.enabledAfter === true && out.restored === true;
+    out.pass = out.enabledAfter === true && out.restored === true && out.mutexRestored;
   } catch (e) {
     out.error = String(e);
   }
