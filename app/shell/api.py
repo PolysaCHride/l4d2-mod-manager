@@ -21,7 +21,7 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 from app.core import app_paths, paths as paths_core  # noqa: E402
-from app.core.library import Library  # noqa: E402
+from app.core.library import Library, conflict_key, group_key_str  # noqa: E402
 from app.core.store import Store  # noqa: E402
 from app.shell import tasks  # noqa: E402
 from app.shell.fmt import fmt_size  # noqa: E402
@@ -503,11 +503,10 @@ class Api(object):
                 # 分类 → 全部可能的子分类。用来把「没有模组的子分类」也画出来
                 # （特感只有 2 个的时候，用户会以为分类坏了）。
                 catalog=_category_catalog(),
-                # 同组互斥开关（默认开）+ 当前存量冲突，界面一次拿全。
-                # 冲突组只在开关打开时需要，但这里总是算 —— 200 条记录的开销
-                # 可以忽略（一次分组，不读盘），换来前端不用二次请求。
-                mutex=self._mutex_enabled(),
-                conflicts=(self._library.conflict_groups()
+                # 同组互斥是**按子分类**各开各关的，所以下发的是「被关掉的那些组」
+                # （格式 "分类\u0000物品"）。前端按当前子分类查这条清单决定开关状态。
+                # 不要在这里下发全局布尔值 —— 没有全局开关这个概念。
+                mutex_off=(sorted(group_key_str(k) for k in self._library.mutex_off_groups())
                            if self._library is not None else []),
                 paths={
                     "addons": gp.addons_dir if gp else "",
@@ -552,65 +551,73 @@ class Api(object):
                 return _err("未配置游戏目录")
 
             enabled = bool(enabled)
-            mutex = self._mutex_enabled()
-            disabled = self._library.set_enabled(file_name, enabled, mutex=mutex)
+            # mutex=None → 由 core 按该模组**自己的子分类开关**判断，
+            # 不再传一个全局值。这样关掉 Nick 的互斥不影响 AK-47。
+            disabled = self._library.set_enabled(file_name, enabled)
+            key = conflict_key(rec)
             return _ok(enabled=enabled, disabled_siblings=list(disabled or []),
-                       mutex=mutex)
+                       mutex=(self._library.mutex_on(key) if key else False))
         except Exception as exc:
             return _err(exc)
 
     # ---------------------------------------------------------------- 互斥开关
 
-    def _mutex_enabled(self):
-        """同组互斥开关的当前值。没存过就是 True（新老用户都按旧行为起步）。"""
-        try:
-            self._ensure()
-            if self._store is None:
-                return True
-            raw = self._store.settings().get("mutex", None)
-            if raw is None:
-                return True
-            return bool(raw)
-        except Exception:
-            return True
+    def get_mutex(self, category=None, item=None):
+        """读某个子分类的互斥开关 + 该组当前的存量冲突。
 
-    def get_mutex(self):
-        """读开关 + 当前存量冲突。打开开关前界面用它先算一遍。"""
-        try:
-            self._ensure()
-            enabled = self._mutex_enabled()
-            groups = []
-            if self._library is not None:
-                groups = self._library.conflict_groups()
-            return _ok(mutex=enabled, groups=groups)
-        except Exception as exc:
-            return _err(exc)
-
-    def set_mutex(self, enabled):
-        """写开关，返回写后的值。
-
-        `enabled=True` 时**不自动收敛**已有的冲突 —— 界面必须先拿
-        `get_mutex()` 算一遍、让用户看清要停用哪些，再单独调
-        `resolve_conflicts()`。这样「打开开关」和「真的改了启用状态」
-        是两个明确分开的动作。
+        `category` / `item` 都给了 → 只看这一个组（界面在 Nick 里点开关时用）；
+        省略 → 返回全库的按组开关映射（`groups`）供界面判断每个子分类的状态。
         """
         try:
             self._ensure()
-            if self._store is None:
-                return _err("数据目录不可用")
-            self._store.set_setting("mutex", bool(enabled))
-            groups = []
-            if self._library is not None:
-                groups = self._library.conflict_groups()
-            return _ok(mutex=bool(enabled), groups=groups)
+            if self._library is None:
+                return _ok(mutex=False, applicable=False, groups={}, conflicts=[])
+
+            lib = self._library
+            if category and item:
+                key = (str(category), str(item))
+                return _ok(mutex=lib.mutex_on(key), applicable=True,
+                           group={"category": key[0], "item": key[1]},
+                           conflicts=lib.conflict_groups(only=key))
+
+            # 不带范围：把「哪些组被关掉了」整体交出去，界面自己按当前子分类取
+            off = lib.mutex_off_groups()
+            return _ok(mutex=True, applicable=False,
+                       off=[group_key_str(k) for k in sorted(off)],
+                       conflicts=[])
         except Exception as exc:
             return _err(exc)
 
-    def resolve_conflicts(self):
-        """把当前所有冲突组收敛到一个启用项（保留名称排序第一个）。
+    def set_mutex(self, enabled, category=None, item=None):
+        """设置某个子分类的互斥开关。
 
-        这是用户在弹窗里点「默认启用」时执行的那一步：只改 addonlist 与库里的
-        enabled 字段，**不动文件**。返回被停用的文件名列表，方便界面说明。
+        必须给 `category` + `item` —— 互斥是**按子分类**独立的，
+        没有「全局开关」这个概念（用户 2026-11-22 明确要求）。
+        打开时**不自动收敛**已有冲突，界面要先调 `resolve_conflicts`
+        或让用户确认。
+        """
+        try:
+            self._ensure()
+            if self._library is None:
+                return _err("未配置游戏目录")
+            if not (category and item):
+                return _err("缺少分类或子分类，无法设置互斥")
+            lib = self._library
+            value = lib.set_group_mutex(category, item, bool(enabled))
+            key = (str(category), str(item))
+            return _ok(mutex=value, group={"category": key[0], "item": key[1]},
+                       conflicts=(lib.conflict_groups(only=key) if value else []))
+        except Exception as exc:
+            return _err(exc)
+
+    def resolve_conflicts(self, category=None, item=None):
+        """把冲突收敛到一个启用项（保留名称排序第一个）。
+
+        给了 `category` + `item` → 只收敛这一个组（界面里「默认启用」用）；
+        省略 → 收敛全库（「整理」用）。
+
+        只改 addonlist 与库里的 enabled 字段，**不动文件**。
+        返回被停用的文件名列表，方便界面说明。
         """
         try:
             self._ensure()
@@ -621,8 +628,10 @@ class Api(object):
 
             lib = self._library
             from app.core.addonlist import AddonList
+            only = ((str(category), str(item))
+                    if (category and item) else None)
             al = AddonList.load(lib.paths.addonlist_file)
-            disabled, _enabled = lib._settle_conflicts(al)
+            disabled, _enabled = lib._settle_conflicts(al, only=only)
             al.save(lib.paths.addonlist_file)
             lib.store.save_library()
             mods = self._all_mods()
@@ -772,7 +781,7 @@ class Api(object):
                 return _err("无法确认游戏是否运行，为安全起见已取消整理")
 
             def run(job):
-                stats = tasks.adopt_all(job, self._library, mutex=self._mutex_enabled())
+                stats = tasks.adopt_all(job, self._library)
                 mods = self._all_mods()
                 self._emit("mods.changed", {"mods": mods})
                 job.done(stats if isinstance(stats, dict) else {})
@@ -861,8 +870,7 @@ class Api(object):
 
             def run(job):
                 try:
-                    records = tasks.commit_import(job, self._library, batch, picked,
-                                                  mutex=self._mutex_enabled())
+                    records = tasks.commit_import(job, self._library, batch, picked)
                     self._emit("mods.changed", {"mods": self._all_mods()})
                     job.done({"imported": len(records)})
                 finally:
@@ -912,8 +920,7 @@ class Api(object):
                 return _err("没有选择要下载的物品")
 
             def run(job):
-                result = tasks.download(job, self._store, self._library, ids, collection,
-                                        mutex=self._mutex_enabled())
+                result = tasks.download(job, self._store, self._library, ids, collection)
                 self._emit("mods.changed", {"mods": self._all_mods()})
                 job.done(result or {})
 

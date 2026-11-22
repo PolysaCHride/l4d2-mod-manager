@@ -75,7 +75,7 @@
     paths: { addons: 'E:\\SteamLibrary\\steamapps\\common\\Left 4 Dead 2\\left4dead2\\addons',
              valid: true },
     version: '1.3',
-    mutex: true,      // 同组互斥开关（后面 set_mutex 会改它）
+    mutexOff: new Set(),   // 被关掉互斥的子分类（键 '分类\u0000物品'）
   };
 
   // pywebview 异步注入。两个坑：
@@ -161,8 +161,7 @@
       catalog: Object.assign({}, MOCK.catalog),
       game: { running: false },
       paths: Object.assign({}, MOCK.paths),
-      mutex: MOCK.mutex !== false,
-      conflicts: mockConflictGroups(),
+      mutex_off: Array.from(MOCK.mutexOff),
       version: MOCK.version,
     };
   }
@@ -274,37 +273,49 @@
       return { ok: true, enabled: m.enabled, disabled_siblings: [] };
     },
 
-    // 同组互斥开关（后端 settings.mutex）
-    get_mutex: async () => {
-      const res = await call('get_mutex');
+    // 同组互斥（按子分类各开各关）
+    get_mutex: async (category, item) => {
+      const res = await call('get_mutex', category, item);
       if (res) return res;
-      // mock：从本批次内存里现算冲突组，让浏览器里也能看到那个弹窗
-      return { ok: true, mutex: MOCK.mutex !== false, groups: mockConflictGroups() };
+      // mock：按内存里的 mutexOff 现算
+      const key = category + '\u0000' + item;
+      return {
+        ok: true, applicable: true, mutex: !MOCK.mutexOff.has(key),
+        conflicts: mockConflictGroups().filter((g) =>
+          g.category === category && g.item === item),
+      };
     },
 
-    set_mutex: async (enabled) => {
-      const res = await call('set_mutex', enabled);
+    set_mutex: async (enabled, category, item) => {
+      const res = await call('set_mutex', enabled, category, item);
       if (res) return res;
-      MOCK.mutex = !!enabled;
-      return { ok: true, mutex: MOCK.mutex, groups: mockConflictGroups() };
+      const key = category + '\u0000' + item;
+      if (enabled) MOCK.mutexOff.delete(key);
+      else MOCK.mutexOff.add(key);
+      return {
+        ok: true, mutex: !!enabled,
+        conflicts: enabled ? mockConflictGroups().filter((g) =>
+          g.category === category && g.item === item) : [],
+      };
     },
 
-    resolve_conflicts: async () => {
-      const res = await call('resolve_conflicts');
+    resolve_conflicts: async (category, item) => {
+      const res = await call('resolve_conflicts', category, item);
       if (res) return res;
       const disabled = [];
-      mockConflictGroups().forEach((g) => {
-        const keep = (g.winner || {}).file;
-        g.members.forEach((m) => {
-          const rec = MOCK.mods.find((x) => x.file === m.file);
-          if (!rec) return;
-          const want = rec.file === keep;
-          if (rec.enabled && !want) disabled.push(rec.file);
-          rec.enabled = want;
+      mockConflictGroups()
+        .filter((g) => !category || (g.category === category && g.item === item))
+        .forEach((g) => {
+          const keep = (g.winner || {}).file;
+          g.members.forEach((m) => {
+            const rec = MOCK.mods.find((x) => x.file === m.file);
+            if (!rec) return;
+            const want = rec.file === keep;
+            if (rec.enabled && !want) disabled.push(rec.file);
+            rec.enabled = want;
+          });
         });
-      });
-      return { ok: true, disabled, count: disabled.length,
-               mods: MOCK.mods.slice() };
+      return { ok: true, disabled, count: disabled.length, mods: MOCK.mods.slice() };
     },
 
     set_alias: async (file, alias) => {

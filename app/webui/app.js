@@ -39,10 +39,10 @@
   // 结构固定，但**具体物品从真实数据里读**，不再写死。
   const RAIL_DEFS = [
     { key: 'all',      title: '全部', cats: null },
-    { key: 'survivor', title: '角色', cats: ['角色'], mutex: true },
-    { key: 'special',  title: '特感', cats: ['特感'], mutex: true },
+    { key: 'survivor', title: '角色', cats: ['角色'] },
+    { key: 'special',  title: '特感', cats: ['特感'] },
     { key: 'weapon',   title: '武器', cats: ['枪械', '近战', '医疗品', '投掷'],
-      grouped: true, mutex: true },
+      grouped: true },
     { key: 'map',      title: '地图', cats: ['地图'] },
     { key: 'other',    title: '其他',
       cats: ['UI', '音效音乐', '载具', '弹药', '材质特效', '动作', '杂物', '杂项', '其他', '未分类'],
@@ -57,9 +57,6 @@
         title: def.title,
         cats: def.cats,
         grouped: !!def.grouped,
-        // 这个 rail 里的东西是否参与（也显示）「同组互斥」。
-        // 2026-11-22 用户裁定：只给 角色 / 特感 / 武器；地图、其他 不参与也不显示。
-        mutex: !!def.mutex,
       };
     });
     return out;
@@ -83,6 +80,11 @@
     '地图', '杂项', '其他', '未分类',
   ];
 
+  // 参与互斥的分类：与 app/core/classify.py 的 CONFLICT_CATEGORIES 一致。
+  // 地图 / 其他下的所有分类都不参与（地图是叠加内容，其他那几类不是同一件物品）。
+  // tests/adapt_contract.js 有断言钉住这份集合。
+  const MUTEX_CATEGORIES = new Set(['角色', '特感', '枪械', '近战', '医疗品', '投掷']);
+
   // ---------------------------------------------------------------- test hook
   // Node 侧契约测试（tests/adapt_contract.js）要直接调 adapt() 等纯函数，
   // 而它们都封在这个 IIFE 里。函数声明会提升，但 const 不会 ——
@@ -98,8 +100,10 @@
       collectionTag,
       UNSET_LABEL,
       orderFilterItems,
-      railSupportsMutex,
       CATEGORY_OPTIONS,
+      MUTEX_CATEGORIES,
+      mutexGroupOf,
+      groupKeyOf,
       RAIL_DEFS,
       RAILS,
       writeBlockedOf,
@@ -115,10 +119,10 @@
     filterItem: null,         // 'Ellis' 等；null = 全部
     layout: 'grid',
     sort: 'added',
-    // 同组互斥开关（后端 settings.mutex，默认开）。true = 同一物品只允许启用一个。
-    mutex: true,
-    // 当前存量冲突组 [{category,item,winner,members}]，bootstrap 填。
-    conflicts: [],
+    // 同组互斥**按子分类**各开各关。这里存的是「被关掉的那些组」的键集合，
+    // 键格式 '分类\u0000物品'（后端下发的 mutex_off）。
+    // 没有「全局开关」这个概念 —— 用户在 Nick 里关掉不影响 AK-47。
+    mutexOff: new Set(),
     query: '',
     selectedId: null,
     gameRunning: false,
@@ -648,7 +652,7 @@
       if (!pool.some((m) => m.id === state.selectedId) && pool.length) {
         state.selectedId = pool[0].id;
       }
-      renderFilters(); renderHeader(); renderGrid(); renderInspector();
+      renderFilters(); renderHeader(); renderGrid(); renderInspector(); paintMutexBtn();
     }));
   }
 
@@ -1303,9 +1307,8 @@
     state.collections = res.collections || {};
     state.catalog = res.catalog || {};
     state.gameRunning = !!(res.game && res.game.running);
-    // 同组互斥开关：后端没给（老版本）就按开处理，和默认值一致。
-    state.mutex = res.mutex === undefined ? true : !!res.mutex;
-    state.conflicts = res.conflicts || [];
+    // 同组互斥：后端下发「被关掉的组」清单，这里转成 Set 方便查。
+    state.mutexOff = new Set(Array.isArray(res.mutex_off) ? res.mutex_off : []);
     // 后端在 is_l4d2_running() 抛异常时给 unknown=true。
     // 检测失败 ≠ 没在运行 —— 这时必须按「不能写」处理，否则游戏运行中
     // 写 addonlist.txt 会失败或损坏（HANDOFF §7.2 / §9.2）。
@@ -2132,73 +2135,102 @@
     if (el) el.textContent = state.version ? ('v' + state.version) : '';
   }
 
-  /** 某个 rail 里的东西参不参与互斥 —— 也是「开关要不要显示」的依据。
-   *  2026-11-22 用户裁定：只有 角色 / 特感 / 武器 三个 rail 显示并参与；
-   *  地图、其他（含 UI/音效/载具/材质…）、以及「全部」都不显示。
-   *  后端同理：classify.CONFLICT_CATEGORIES 不含地图与那些叠加型分类。
-   *  抽成接 key 的纯函数，Node 契约测试可以直接断言。 */
-  function railSupportsMutex(railKey) {
-    const def = RAILS[railKey];
-    return !!(def && def.mutex);
+  /** 当前视图的「互斥组」= (分类, 子分类)。只有选到**具体子分类**才有组。
+   *
+   *  2026-11-22 用户裁定：
+   *    · 互斥按**子分类**各开各关（Nick 一个、AK-47 一个）；
+   *    · 「全部角色」「未指定」这种会混多种子分类的视图**不参与互斥**，
+   *      也就不显示开关（没有具体物品，互斥无从谈起）。
+   */
+  function mutexGroupOf(filterItem, filterCat) {
+    // 「全部X」「未指定」不适用：前者混多种子分类，后者根本不是一件具体物品
+    const item = filterItem;
+    if (!item || item.startsWith('全部') || item === UNSET_LABEL) return null;
+    const cat = filterCat || '';
+    if (!MUTEX_CATEGORIES.has(cat)) return null;
+    return { category: cat, item };
   }
 
-  function railHasMutex() {
-    return railSupportsMutex(state.rail);
+  function currentGroup() {
+    return mutexGroupOf(state.filterItem, state.filterCat);
   }
 
+  function groupKeyOf(g) {
+    return g ? (g.category + '\u0000' + g.item) : '';
+  }
+
+  /** 这个组现在开着互斥吗（没有组 = 不适用）。 */
+  function groupMutexOn(g) {
+    if (!g) return false;
+    return !state.mutexOff.has(groupKeyOf(g));
+  }
+
+  /** 开关要不要显示：只有「当前选中了具体子分类」才显示。 */
   function paintMutexBtn() {
     const btn = $('#mutexBtn');
     if (!btn) return;
-    // 不参与互斥的分类里，这个开关没有意义 —— 直接藏起来，不留一个点了没反应的控件。
-    btn.hidden = !railHasMutex();
-    btn.classList.toggle('on', !!state.mutex);
-    btn.setAttribute('aria-checked', state.mutex ? 'true' : 'false');
+    const g = currentGroup();
+    // 没有具体子分类（全部X / 未指定 / 地图 / 其他 / 设置页）→ 不显示。
+    // 用户明确说：这些视图「分类混乱」或「包含多种子分类」，不适用互斥。
+    btn.hidden = !g;
+    if (!g) return;
+    const on = groupMutexOn(g);
+    btn.classList.toggle('on', on);
+    btn.setAttribute('aria-checked', on ? 'true' : 'false');
     const use = btn.querySelector('use');
-    if (use) use.setAttribute('href', state.mutex ? '#i-lock' : '#i-lock-open');
-    btn.title = state.mutex
-      ? '同组互斥已开启：同一物品只允许启用一个模组'
-      : '同组互斥已关闭：同一物品可以同时启用多个模组';
+    if (use) use.setAttribute('href', on ? '#i-lock' : '#i-lock-open');
+    btn.title = on
+      ? `「${g.item}」同组互斥已开启：这个物品只允许启用一个模组`
+      : `「${g.item}」同组互斥已关闭：这个物品可以同时启用多个模组`;
   }
 
   async function onMutexToggle() {
-    const next = !state.mutex;
+    const g = currentGroup();
+    if (!g) return;
+    const next = !groupMutexOn(g);
+
     if (next) {
-      // 打开前先算一遍存量冲突：有冲突才弹窗让用户确认要停用哪些。
-      // 不静默收敛 —— 那会在他没看清之前就改掉一批启用状态。
-      const res = await window.bridge.get_mutex();
-      const groups = (res && res.ok && res.groups) || [];
+      // 打开前先算一遍**这个子分类**的存量冲突。别的子分类的问题不在这里弹，
+      // 用户没理由在看 Nick 的时候处理 Tank。
+      const res = await window.bridge.get_mutex(g.category, g.item);
+      const groups = (res && res.ok && res.conflicts) || [];
       if (groups.length) {
-        const ok = await conflictDialog(groups);
-        if (ok === 'enable') {
-          const done = await window.bridge.set_mutex(true);
-          state.mutex = !!(done && done.ok ? done.mutex : true);
-          paintMutexBtn();
-          const fixed = await window.bridge.resolve_conflicts();
-          if (fixed && fixed.ok) {
-            MODS = (fixed.mods || MODS).map(adapt);
-            await loadFromBridge();
-            renderFilters(); renderGrid(); renderInspector();
-            toast(`已开启同组互斥，停用 ${fixed.count || 0} 个模组`);
-          } else {
-            toast('已开启同组互斥');
-          }
+        const choice = await conflictDialog(groups);
+        if (choice !== 'enable') {
+          return;                      // 用户选「关闭互斥」→ 什么都不改
+        }
+        const done = await window.bridge.set_mutex(true, g.category, g.item);
+        if (!done || !done.ok) {
+          await infoDialog({ title: '无法切换', tone: 'danger',
+                             text: (done && done.error) || '写入设置失败' });
           return;
         }
-        // 用户选「关闭互斥」→ 开关保持关，什么都不改
-        state.mutex = false;
+        state.mutexOff.delete(groupKeyOf(g));
         paintMutexBtn();
+        const fixed = await window.bridge.resolve_conflicts(g.category, g.item);
+        if (fixed && fixed.ok) {
+          MODS = (fixed.mods || MODS).map(adapt);
+          await loadFromBridge();
+          renderFilters(); renderGrid(); renderInspector(); paintMutexBtn();
+          toast(`已开启「${g.item}」的同组互斥，停用 ${fixed.count || 0} 个模组`);
+        } else {
+          toast(`已开启「${g.item}」的同组互斥`);
+        }
         return;
       }
     }
-    const res = await window.bridge.set_mutex(next);
+
+    const res = await window.bridge.set_mutex(next, g.category, g.item);
     if (!res || !res.ok) {
       await infoDialog({ title: '无法切换', tone: 'danger',
                          text: (res && res.error) || '写入设置失败' });
       return;
     }
-    state.mutex = !!res.mutex;
+    if (next) state.mutexOff.delete(groupKeyOf(g));
+    else state.mutexOff.add(groupKeyOf(g));
     paintMutexBtn();
-    toast(state.mutex ? '已开启同组互斥' : '已关闭同组互斥');
+    toast(next ? `已开启「${g.item}」的同组互斥`
+               : `已关闭「${g.item}」的同组互斥`);
   }
 
   $('#mutexBtn').addEventListener('click', (e) => { e.stopPropagation(); onMutexToggle(); });

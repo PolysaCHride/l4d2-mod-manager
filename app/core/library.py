@@ -17,6 +17,24 @@ from .store import mod_display_name, mod_name_sort_key, new_mod_record
 WS_KEY_PREFIX = "workshop\\"
 
 
+MUTEX_OFF_SETTING = "mutex_off_groups"
+
+
+def group_key_str(key):
+    """把 `(分类, 物品)` 压成能进 JSON 的字符串键（NUL 分隔，名字里不会有）。"""
+    if not key:
+        return ""
+    return "\u0000".join([str(key[0]), str(key[1])])
+
+
+def group_key_tuple(raw):
+    """`group_key_str` 的逆运算；形状不对返回 None。"""
+    parts = str(raw or "").split("\u0000")
+    if len(parts) != 2 or not parts[0] or not parts[1]:
+        return None
+    return (parts[0], parts[1])
+
+
 def conflict_key(rec):
     """互斥组键 `(分类, 物品)`；这个模组不参与互斥时返回 None。
 
@@ -27,6 +45,9 @@ def conflict_key(rec):
       · `item` 非空 —— 「未指定」是个垃圾桶，里面可能是完全不同的东西
         （一个 UI 皮肤 + 一个音效包），强行互斥会误伤。
       · 记录本身存在。
+
+    ⚠️ 组键是 `(分类, 物品)` —— 也就是**一个具体子分类**（Nick / AK-47 …）。
+    互斥开关是按这个组各开各关的（`mutex_on`），不是全局一个。
     """
     if not rec:
         return None
@@ -427,12 +448,54 @@ class Library(object):
         mutate(al)
         al.save(self.paths.addonlist_file)
 
-    def set_enabled(self, file_name, enabled, mutex=True):
+    # ---------- 同组互斥开关（按子分类各开各关） ----------
+    def mutex_off_groups(self):
+        """被用户**关掉**互斥的组键集合。缺省为空 = 每个组都开着。
+
+        存的是「关掉的」而不是「打开的」：新出现的子分类（新武器、新角色）
+        默认就带互斥，不需要用户一个个去开。
+        """
+        raw = self.store.settings().get(MUTEX_OFF_SETTING) or []
+        out = set()
+        for item in raw:
+            key = group_key_tuple(item)
+            if key:
+                out.add(key)
+        return out
+
+    def mutex_on(self, key):
+        """这个互斥组的开关是否打开；`key` 为 None（不参与互斥）时恒 False。"""
+        if not key:
+            return False
+        return key not in self.mutex_off_groups()
+
+    def set_group_mutex(self, category, item, enabled):
+        """单独设置某个 `(分类, 物品)` 的互斥开关，返回写后的值。
+
+        只动这一个组，不碰别的子分类 —— 用户在 Nick 里关掉，AK-47 那边
+        仍然是开着（用户 2026-11-22 的明确要求）。
+        """
+        key = (str(category or ""), str(item or ""))
+        if not key[0] or not key[1]:
+            raise LibraryError("缺少分类或子分类，无法设置互斥")
+        off = self.mutex_off_groups()
+        if enabled:
+            off.discard(key)
+        else:
+            off.add(key)
+        self.store.set_setting(MUTEX_OFF_SETTING,
+                               sorted(group_key_str(k) for k in off))
+        return bool(enabled)
+
+    def set_enabled(self, file_name, enabled, mutex=None):
         """启用 = addonlist 记 "1"；禁用 = addonlist 记 "0"。mod 文件不移动。
 
-        `mutex=True`（界面上的「同组互斥」开关打开）且本次是**启用**时，
-        会把同 `(分类, 物品)` 其余已启用的模组一并记为 "0"，并把它们的文件名
-        作为返回值交出去，让界面能说清「顺带停用了谁」。
+        `mutex=None`（默认）时按**该子分类自己的开关**（`mutex_on`）决定；
+        传 True/False 则强制开/关（测试与旧调用点用）。
+
+        互斥生效且本次是**启用**时，会把同 `(分类, 物品)` 其余已启用的模组
+        一并记为 "0"，并把它们的文件名作为返回值交出去，让界面能说清
+        「顺带停用了谁」。
 
         互斥只作用于 `CONFLICT_CATEGORIES` 里那些外观类、且 item 非空的模组
         （见 `conflict_key`）。地图 / 音效 / UI 等叠加型内容不互斥，
@@ -444,7 +507,13 @@ class Library(object):
         if not os.path.isfile(os.path.join(self.paths.addons_dir, file_name)):
             raise LibraryError("mod 文件不存在: " + file_name)
         disabled = []
-        key = conflict_key(rec) if (enabled and mutex) else None
+        key = conflict_key(rec) if enabled else None
+        if key is not None:
+            # mutex=None（默认）：看不传，按这个组**自己的**开关决定。
+            # 显式传 True/False 时以调用方为准（旧调用点、测试用）。
+            on = self.mutex_on(key) if mutex is None else bool(mutex)
+            if not on:
+                key = None
 
         def mutate(al):
             al.set(file_name, "1" if enabled else "0")
@@ -664,7 +733,7 @@ class Library(object):
         self.store.save_library()
         return rec
 
-    def enable_new_mods(self, file_names, mutex=False):
+    def enable_new_mods(self, file_names, mutex=None):
         """批量启用新入库的 mod，返回被自动停用的文件名列表。
 
         `mutex=False`（界面上的「同组互斥」关着）：
@@ -686,31 +755,38 @@ class Library(object):
         al = AddonList.load(self.paths.addonlist_file)
         batch = set(names)
 
+        # 参与互斥的组 = 有空 item、且在 CONFLICT_CATEGORIES 里、且**该组开关是开的**。
+        # mutex 参数是「全局开关」（False = 一律不互斥，只给测试/旧调用点用）；
+        # 默认 None 表示逐组按 `mutex_on()` 判断 —— 这样关掉 Nick 的互斥
+        # 不会影响 AK-47。
+        def _active(key):
+            if key is None:
+                return False
+            return self.mutex_on(key) if mutex is None else bool(mutex)
+
         # 每个互斥组在这次导入之前是否已经有人启用
         pre_enabled = {}
-        if mutex:
-            for other in list(self.store.mods().values()):
-                if other["file"] in batch or not other.get("enabled"):
-                    continue
-                key = conflict_key(other)
-                if key is not None:
-                    pre_enabled[key] = True
+        for other in list(self.store.mods().values()):
+            if other["file"] in batch or not other.get("enabled"):
+                continue
+            key = conflict_key(other)
+            if _active(key):
+                pre_enabled[key] = True
 
         # 同批里按组挑一个「赢家」：名称排序第一个
         winners = {}
-        if mutex:
-            groups = {}
-            for name in names:
-                key = conflict_key(self.store.get_mod(name))
-                if key is not None:
-                    groups.setdefault(key, []).append(name)
-            for key, files in groups.items():
-                if pre_enabled.get(key):
-                    continue                    # 组里已有用户的选择，本批全部不启用
-                ordered = sorted(
-                    files,
-                    key=lambda f: mod_name_sort_key(self.store.get_mod(f) or {"file": f}))
-                winners[key] = ordered[0]       # 名称第一个
+        groups = {}
+        for name in names:
+            key = conflict_key(self.store.get_mod(name))
+            if _active(key):
+                groups.setdefault(key, []).append(name)
+        for key, files in groups.items():
+            if pre_enabled.get(key):
+                continue                        # 组里已有用户的选择，本批全部不启用
+            ordered = sorted(
+                files,
+                key=lambda f: mod_name_sort_key(self.store.get_mod(f) or {"file": f}))
+            winners[key] = ordered[0]           # 名称第一个
 
         disabled = []
         for name in names:
@@ -719,13 +795,13 @@ class Library(object):
                 continue
             key = conflict_key(rec)
             enable = True
-            if mutex and key is not None:
+            if _active(key):
                 enable = (winners.get(key) == name)
                 if not enable and rec.get("enabled"):
                     disabled.append(name)
             al.set(name, "1" if enable else "0")
             rec["enabled"] = enable
-            if mutex and enable and key is not None:
+            if enable and _active(key):
                 # 组内其余已启用的（含本批之外的老模组）一并停用 ——
                 # 只在「组里之前没人启用」的分支才会走到这里，
                 # 所以这里实际最多命中同一批的落选者，不会误伤用户的选择。
@@ -846,19 +922,22 @@ class Library(object):
         #   · 组里原本就记着启用的那些 → 保留（多个时取名称排序第一个）
         #   · 组里一个都没启用 → 保持全停用，不主动帮你开
         # 只改启用状态，不动任何文件。
-        if mutex:
-            disabled, enabled_extra = self._settle_conflicts(al)
-            stats["auto_disabled"] = len(disabled)
-            stats["auto_enabled"] = len(enabled_extra)
-        else:
-            stats["auto_disabled"] = 0
-            stats["auto_enabled"] = 0
+        # 只收敛「开关开着」的组；用户单独关掉的那个子分类不许动。
+        # 互斥按子分类独立（用户 2026-11-22），所以这里逐组查开关，
+        # 不再有「全局开 / 关」这一层。
+        open_keys = [k for k in self._all_conflict_keys() if self.mutex_on(k)]
+        disabled, enabled_extra = self._settle_conflicts(al, only=open_keys)
+        stats["auto_disabled"] = len(disabled)
+        stats["auto_enabled"] = len(enabled_extra)
         al.save(self.paths.addonlist_file)
         self.store.save_library()
         return stats
 
-    def _settle_conflicts(self, al):
+    def _settle_conflicts(self, al, only=None):
         """把每个互斥组收敛到只剩一个启用项，返回 (被停用, 被启用) 文件名列表。
+
+        `only` 为 `(分类, 物品)` 或键的集合时只处理这些组（界面上「只收敛
+        当前子分类」用）；省略则处理全库（「整理」用）。
 
         取舍规则（用户 2026-11-22 裁定「保留管理器原本记着启用的那个」）：
           1. 组里只有一个启用项 → 不动它；
@@ -866,10 +945,19 @@ class Library(object):
           3. 组里一个都没启用 → 全组保持停用，**不主动启用任何东西**
              （整理是「接管现有文件」，不是「帮你开始玩」）。
         """
+        wanted = None
+        if only is not None:
+            if isinstance(only, tuple):
+                wanted = {only}
+            else:
+                wanted = set(tuple(k) for k in only if k)
+
         groups = {}
         for rec in list(self.store.mods().values()):
             key = conflict_key(rec)
             if key is None:
+                continue
+            if wanted is not None and key not in wanted:
                 continue
             groups.setdefault(key, []).append(rec)
 
@@ -887,20 +975,39 @@ class Library(object):
                 disabled.append(rec["file"])
         return disabled, enabled_extra
 
-    def conflict_groups(self):
+    def _all_conflict_keys(self):
+        """库里出现过的全部互斥组键（不管开没开）。"""
+        keys = set()
+        for rec in list(self.store.mods().values()):
+            key = conflict_key(rec)
+            if key is not None:
+                keys.add(key)
+        return keys
+
+    def conflict_groups(self, only=None):
         """列出**当前存在冲突**的互斥组（一组里两个及以上启用）。
 
-        返回 [{category, item, winner, losers:[{file,title,alias}...]}]，
-        供界面在打开「同组互斥」开关时先算一遍、让用户确认要停用哪些。
+        `only` 可以是 `(分类, 物品)` 或一组这样的键 —— 只检查这些组。
+        界面在某个子分类里点开关时只该看到那个子分类的冲突，
+        不能再把别的子分类（甚至别的分类）的问题推到用户面前。
+
         `winner` 的取舍与 `_settle_conflicts` 完全一致（名称排序第一个），
         这样弹窗里说「将启用 X」和真正执行后的结果不可能对不上。
         """
+        wanted = None
+        if only is not None:
+            if isinstance(only, tuple):
+                wanted = {only}
+            else:
+                wanted = set(tuple(k) for k in only if k)
         groups = {}
         for rec in list(self.store.mods().values()):
             if not rec.get("enabled"):
                 continue
             key = conflict_key(rec)
             if key is None:
+                continue
+            if wanted is not None and key not in wanted:
                 continue
             groups.setdefault(key, []).append(rec)
 

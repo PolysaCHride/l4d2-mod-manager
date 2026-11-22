@@ -508,26 +508,48 @@ check('未知排序键退回最近添加（不崩）', () => {
 
 console.log('\n同组互斥的适用范围');
 
-check('只有 角色/特感/武器 显示并参与互斥', () => {
-  // 2026-11-22 用户裁定：地图、其他一律不带互斥开关
-  eq(['all', 'survivor', 'special', 'weapon', 'map', 'other']
-      .filter((r) => app.railSupportsMutex(r)).join(','), 'survivor,special,weapon');
+check('参与互斥的分类只有 角色/特感/枪械/近战/医疗品/投掷', () => {
+  eq([...app.MUTEX_CATEGORIES].sort().join(','),
+     ['角色', '特感', '枪械', '近战', '医疗品', '投掷'].sort().join(','));
 });
 
-check('「全部」不显示互斥开关（混合列表，语义不清）', () => {
-  eq(app.railSupportsMutex('all'), false);
+check('地图绝不参与互斥', () => {
+  eq(app.MUTEX_CATEGORIES.has('地图'), false);
 });
 
-check('地图不参与互斥', () => {
-  eq(app.railSupportsMutex('map'), false);
+check('其他（UI/音效/载具/弹药/材质/动作/杂项）都不参与', () => {
+  ['UI', '音效音乐', '载具', '弹药', '材质特效', '动作', '杂项', '其他', '未分类']
+    .forEach((c) => eq(app.MUTEX_CATEGORIES.has(c), false, c));
 });
 
-check('其他（UI/音效/载具/材质…）不参与互斥', () => {
-  eq(app.railSupportsMutex('other'), false);
+// mutexGroupOf(filterItem, filterCat)：只有「具体子分类」才有互斥组
+check('选中具体子分类 Nick → 有互斥组', () => {
+  const g = app.mutexGroupOf('Nick(尼克)', '角色');
+  eq(g && g.category, '角色');
+  eq(g && g.item, 'Nick(尼克)');
+  eq(app.groupKeyOf(g), '角色\u0000Nick(尼克)');
 });
 
-check('未知 rail 返回 false，不崩', () => {
-  eq(app.railSupportsMutex('nope'), false);
+check('AK-47 也能单独成组（各开各关的前提）', () => {
+  const g = app.mutexGroupOf('AK-47(AK)', '枪械');
+  eq(g && g.item, 'AK-47(AK)');
+});
+
+check('「全部角色」不适用互斥（混多种子分类）', () => {
+  eq(app.mutexGroupOf('全部角色', ''), null);
+});
+
+check('「未指定」不适用互斥（不是一件具体物品）', () => {
+  eq(app.mutexGroupOf('未指定', '角色'), null);
+});
+
+check('地图战役名不适用互斥', () => {
+  eq(app.mutexGroupOf('The Bloody Moors', '地图'), null);
+});
+
+check('没有选中任何子分类时不适用', () => {
+  eq(app.mutexGroupOf(null, ''), null);
+  eq(app.mutexGroupOf('', '角色'), null);
 });
 
 console.log('');

@@ -57,7 +57,7 @@ def _count_adopt_work(library):
     return max(top + sub + ws, 1)
 
 
-def adopt_all(job, library, mutex=False):
+def adopt_all(job, library):
     """全量采纳（library.adopt_all）：把 addons 下所有 vpk 纳入管理。
 
     与 scan() 的区别：**这个会移动文件**。
@@ -87,7 +87,7 @@ def adopt_all(job, library, mutex=False):
         state["done"] = max(state["done"], int(done or 0))
         job.progress(text, min(state["done"], total_work), total_work, phase="adopt")
 
-    stats = library.adopt_all(progress=progress, mutex=mutex)
+    stats = library.adopt_all(progress=progress)
     job.progress("整理完成", 1, 1, phase="adopt")
     return stats
 
@@ -111,18 +111,17 @@ def analyze_archives(job, library, archive_paths, archiver_info=None):
     return batch
 
 
-def commit_import(job, library, batch, candidates, mutex=False):
+def commit_import(job, library, batch, candidates):
     """把勾选的候选写入模组库。"""
     def progress(i, n, text):
         job.progress(text, i, n, phase="import-commit")
 
-    records = importer.commit_staged(batch, library, candidates, progress=progress,
-                                      mutex=mutex)
+    records = importer.commit_staged(batch, library, candidates, progress=progress)
     job.log("已写入 %d 个模组" % len(records))
     return records
 
 
-def download(job, store, library, item_ids, collection=None, mutex=False):
+def download(job, store, library, item_ids, collection=None):
     """批量下载并导入工坊物品。
 
     进度按工坊 file_size 加权合并，与原版保持一致。
@@ -219,8 +218,7 @@ def download(job, store, library, item_ids, collection=None, mutex=False):
                 log=lambda s: job.log(str(s)),
                 progress=on_progress,
                 collection=collection,
-                detail=detail,
-                mutex=mutex)
+                detail=detail)
             recs.append(rec)
         except Exception as exc:
             failures.append({"id": wid, "title": title,

@@ -54,9 +54,13 @@ window.__t = null;
     // 先读「开互斥」的开关状态，验证时把它关掉 —— 否则启用 A 会顺带停用同组 B，
     // 再停用 A 也**不会**把 B 放回来，两轮 toggle 就不是「回到原状」了。
     // （2026-11-22 互斥回归后新增的坑：这个探针原来假设「toggle 两次等于没动」。）
-    const before = await window.bridge.get_mutex();
-    const wasMutex = !!(before && before.mutex);
-    if (wasMutex) await window.bridge.set_mutex(false);
+    // 互斥现在是**按子分类**的：关掉 target 所在那一个组就够了。
+    const grp = { category: target.category, item: target.item || '' };
+    const before = await window.bridge.get_mutex(grp.category, grp.item);
+    const wasMutex = !!(before && before.ok && before.mutex);
+    if (wasMutex && grp.item) {
+      await window.bridge.set_mutex(false, grp.category, grp.item);
+    }
 
     let r1 = null, r2 = null;
     try {
@@ -74,13 +78,16 @@ window.__t = null;
       out.steps.push({step: 'disable', ok: r2.ok, enabled: r2.enabled});
     } finally {
       // 无论成败都把开关恢复原值 —— 探针绝不能改用户的设置
-      if (wasMutex) await window.bridge.set_mutex(true);
+      if (wasMutex && grp.item) {
+        await window.bridge.set_mutex(true, grp.category, grp.item);
+      }
     }
 
     const b3 = await window.bridge.bootstrap();
     const m3 = b3.mods.find(m => m.file === target.file);
     out.restored = m3 ? !m3.enabled : null;
-    out.mutexRestored = !!(await window.bridge.get_mutex()).mutex === wasMutex;
+    const after = await window.bridge.get_mutex(grp.category, grp.item);
+    out.mutexRestored = (!!(after && after.mutex)) === wasMutex;
 
     out.pass = out.enabledAfter === true && out.restored === true && out.mutexRestored;
   } catch (e) {

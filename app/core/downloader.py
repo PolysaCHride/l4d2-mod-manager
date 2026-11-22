@@ -219,7 +219,7 @@ def pick_vpk_in_dir(content_dir):
 
 
 def download_and_import(store, library, item_id, log=None, progress=None, collection=None,
-                        detail=None, mutex=False):
+                        detail=None):
     """完整链路：file_url 直连 → 失败则 SteamCMD → 拷入 addons → 解析入库。
     collection={"cid","name","workshop_id"} 时将 mod 归入该合集。
 
@@ -308,7 +308,7 @@ def download_and_import(store, library, item_id, log=None, progress=None, collec
         preview=preview_path, title=title, workshop_id=str(item_id))
     # 下载后默认启用。互斥开关打开时，enable_new_mods 自己判断：
     # 同组已有启用项 → 只入库不启用；同组全空 → 自动启用。
-    library.enable_new_mods([rec["file"]], mutex=mutex)
+    library.enable_new_mods([rec["file"]])
     if collection:
         cid = str(collection.get("cid") or "")
         children = [str(c) for c in (collection.get("children") or [])]

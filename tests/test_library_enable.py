@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
 """导入 / 下载后默认启用。
 
-⚠️ 2026-11-20 起**不再有互斥**（用户要求自行管理冲突）：
-`enable_new_mods` 只负责把新模组设为启用，**不会**再停用同组的旧模组。
-原来的 `test_conflict_group_switches_to_latest_new_mod` 因此改写为
-`test_same_group_mods_all_stay_enabled` —— 断言的是相反的行为。
+2026-11-22 起互斥回来了，但**按子分类各开各关**：
+`enable_new_mods` 默认遵守每个组自己的开关（新库默认全开）。
+所以要测「不互斥」的行为，先把那个组关掉 —— 见 `_off()`。
 """
 import os
 import tempfile
@@ -37,6 +36,10 @@ class EnableNewModsTests(unittest.TestCase):
         self.store.save_library()
         return rec
 
+    def _off(self, category, item):
+        """关掉某个子分类的互斥（模拟用户在界面上把那个开关拨掉）。"""
+        self.library.set_group_mutex(category, item, False)
+
     def _enabled(self, name):
         return bool(self.store.get_mod(name).get("enabled"))
 
@@ -55,10 +58,12 @@ class EnableNewModsTests(unittest.TestCase):
         self.assertEqual(self._addon_value(skin["file"]), "1")
 
     def test_same_group_mods_all_stay_enabled(self):
-        """同组（枪械/AK-47）的多个模组全部保持启用 —— 不再自动停用旧项。
+        """把某个子分类的互斥关掉后，同组的多个模组全部保持启用。
 
-        这是拆除互斥后的核心断言：用户自己决定谁开谁关。
+        互斥是按子分类独立的，所以这条既是「关掉就不互斥」的证明，
+        也是「关一个不影响别的组」的侧面证明（别的组仍然按各自开关走）。
         """
+        self._off("枪械", "AK-47")
         old = self._add_mod("old_ak.vpk", "枪械", "AK-47")
         self.library.enable_new_mods([old["file"]])
 
@@ -88,7 +93,8 @@ class EnableNewModsTests(unittest.TestCase):
         self.assertTrue(self._enabled(sound["file"]))
 
     def test_toggle_does_not_disable_siblings(self):
-        """set_enabled(mutex=False) 不动同组其它模组。"""
+        """该组互斥关着时，启用一个不动同组其它模组。"""
+        self._off("枪械", "AK-47")
         a = self._add_mod("a_ak.vpk", "枪械", "AK-47")
         b = self._add_mod("b_ak.vpk", "枪械", "AK-47")
 
@@ -96,7 +102,7 @@ class EnableNewModsTests(unittest.TestCase):
         self.assertTrue(self._enabled(a["file"]))
         self.assertTrue(self._enabled(b["file"]))
 
-        disabled = self.library.set_enabled(b["file"], True, mutex=False)
+        disabled = self.library.set_enabled(b["file"], True)
         self.assertEqual(disabled, [])
         self.assertTrue(self._enabled(a["file"]), "启用 b 不该关掉 a")
 
