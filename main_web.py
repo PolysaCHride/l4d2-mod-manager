@@ -73,10 +73,74 @@ def main():
     api.attach_window(window)
 
     print("[main] startup %.2fs" % (time.time() - t0), flush=True)
+    _arm_file_drop(window, api)
     _start_diagnostics(window)
 
     webview.start(debug=bool(os.environ.get("L4D2_DEBUG")))
     return 0
+
+
+def _arm_file_drop(window, api):
+    """把「拖文件进来」接到 Python 侧，这样才拿得到绝对路径。
+
+    ⚠️ 必须由**这里**（Python）调 `Element.on('drop', ...)`：
+
+      · pywebview 的 `_dnd_state['num_listeners']` 只有在
+        `webview.dom.Element.on('drop', cb)` 时才会 +1；
+      · 它 > 0 时，WebView2 才会走
+        `postMessageWithAdditionalObjects('FilesDropped', files)`，
+        传的是带 `.Path` 的 CoreWebView2File；
+      · pywebview 再把绝对路径回填进事件里每个 file 的
+        `pywebviewFullPath`。
+
+    在 JS 里 `addEventListener('drop')` **不会**触发这条通道 ——
+    `dataTransfer.files[i]` 只有 name/size/type，永远没有 path。
+    这就是之前「拖拽看起来支持、实际拿不到路径」的根因。
+
+    失败要静默：这条通道依赖 pywebview 内部实现，换版本可能失效。
+    真挂了就退回原行为（前端弹文件选择框），不能让用户拖了没反应。
+    """
+    import threading
+
+    def arm():
+        try:
+            from webview.dom import DOMEventHandler
+        except Exception as exc:      # 老版本没有 DOM API
+            print("[main] 拖拽路径注入不可用（%s），退回点击选择" % exc, flush=True)
+            return
+
+        # 等页面真加载完：DOM 是静态的，但 _getNodeId 需要元素已经存在。
+        for _ in range(60):
+            try:
+                if window.evaluate_js("document.querySelector('#dropZone') !== null"):
+                    break
+            except Exception:
+                pass
+            time.sleep(0.25)
+
+        for attempt in range(8):
+            try:
+                el = window.dom.get_element("#dropZone")
+            except Exception as exc:
+                print("[main] get_element 失败：%s" % exc, flush=True)
+                return
+            if el is not None:
+                try:
+                    # prevent_default=True 很关键：不阻止默认行为的话，
+                    # WebView2 会试着把文件「当导航打开」，
+                    # 在 file:// 页面上表现为白屏。
+                    el.on("drop", DOMEventHandler(api.on_file_drop,
+                                                  prevent_default=True))
+                    print("[main] 拖拽路径注入已启用（第 %d 次尝试）" % (attempt + 1),
+                          flush=True)
+                    return
+                except Exception as exc:
+                    print("[main] 注册 drop 监听失败：%s" % exc, flush=True)
+                    return
+            time.sleep(0.4)
+        print("[main] #dropZone 一直没出现，拖拽导入退回点击选择", flush=True)
+
+    threading.Thread(target=arm, daemon=True).start()
 
 
 def _start_diagnostics(window):

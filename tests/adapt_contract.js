@@ -552,6 +552,33 @@ check('没有选中任何子分类时不适用', () => {
   eq(app.mutexGroupOf('', '角色'), null);
 });
 
+console.log('\n拖拽导入的降级路径');
+
+// 前端新增的 importPaths(paths)：路径由 Python 侧给出。
+// 这里只能测「纯逻辑」，真正的路径获取在 main_web 里，靠实机验证。
+check('importPaths 存在且不是 runImport 本身（拆开了）', () => {
+  // 两个函数都是 function 声明，会被提升到 IIFE 顶部，
+  // 但没导出 —— 所以只能从源码层面确认名字都在。
+  const src = require('fs').readFileSync(
+    require('path').join(__dirname, '..', 'app', 'webui', 'app.js'), 'utf8');
+  ok(src.indexOf('async function runImport()') >= 0, 'runImport 应该还在');
+  ok(src.indexOf('async function importPaths(paths)') >= 0, 'importPaths 应该存在');
+});
+
+check('前端不再自己监听 drop（路径只能由 Python 侧提供）', () => {
+  const src = require('fs').readFileSync(
+    require('path').join(__dirname, '..', 'app', 'webui', 'app.js'), 'utf8');
+  // 允许 dragenter/dragover/dragleave 做视觉反馈，但不允许假的 drop 处理器
+  const fakeDrop = src.match(/addEventListener\('drop',\s*\(e\)\s*=>\s*\{[^}]*runImport\(\)/);
+  eq(fakeDrop, null, '不该再有「drop 里调 runImport（弹选择框）」的假动作');
+});
+
+check('订阅了 files.dropped（Python → 前端的唯一入口）', () => {
+  const src = require('fs').readFileSync(
+    require('path').join(__dirname, '..', 'app', 'webui', 'app.js'), 'utf8');
+  ok(src.indexOf("on('files.dropped'") >= 0, '必须订阅 files.dropped');
+});
+
 console.log('');
 if (failures) {
   console.error('失败 ' + failures + ' 项');

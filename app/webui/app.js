@@ -1615,9 +1615,9 @@
     });
   }
 
+  /** 点虚线区：弹原生文件选择框，然后把路径交给 importPaths。 */
   async function runImport() {
     if (importFlow.running) return;
-    importFlow.running = true;      // 立刻占据，避免拖拽触发两次
 
     let paths = [];
     if (!window.bridge.isMock()) {
@@ -1627,6 +1627,14 @@
     } else {
       paths = ['mock.7z'];
     }
+    await importPaths(paths);
+  }
+
+  /** 按已知的绝对路径导入。拖拽走的就是这条路（路径由 Python 侧给出）。 */
+  async function importPaths(paths) {
+    if (importFlow.running) return;
+    if (!paths || !paths.length) return;
+    importFlow.running = true;      // 立刻占据，避免拖拽触发两次
 
     importFlow.candidates = [];
     importFlow.batchJob = null;
@@ -2309,26 +2317,50 @@
     e.preventDefault();
     $('#dropZone').classList.remove('drag');
   }));
-  $('#dropZone').addEventListener('drop', (e) => {
-    const name = (e.dataTransfer.files[0] || {}).name || '';
-    if (name && !/\.(zip|7z|rar)$/i.test(name)) {
-      infoDialog({ title: '无法导入', tone: 'warning', text: '只支持 ZIP、7z 和 RAR。' });
-      return;
-    }
-    runImport();
-  });
-  // let the whole view accept drops
+  // 松手之后做什么**不在这里**：浏览器拿不到拖进来文件的绝对路径
+  // （File 对象只有 name/size/type），要走 Python 侧的 webview.dom 监听，
+  // 由 main_web._arm_file_drop 注册、api.on_file_drop 取路径，再 emit
+  // 'files.dropped' 推回来。见下面的事件订阅。
+  // 这里只负责「拖到上面时高亮」这一层视觉反馈。
   const importView = $('[data-panel="import"]');
-  importView.addEventListener('dragover', (e) => e.preventDefault());
-  importView.addEventListener('drop', (e) => {
+  importView.addEventListener('dragover', (e) => {
     e.preventDefault();
-    const name = (e.dataTransfer.files[0] || {}).name || '';
-    if (name && !/\.(zip|7z|rar)$/i.test(name)) {
-      infoDialog({ title: '无法导入', tone: 'warning', text: '只支持 ZIP、7z 和 RAR。' });
-      return;
-    }
-    runImport();
+    $('#dropZone').classList.add('drag');
   });
+  importView.addEventListener('dragleave', (e) => {
+    if (!importView.contains(e.relatedTarget)) $('#dropZone').classList.remove('drag');
+  });
+
+  // ---------------------------------------------------------------- 拖拽导入
+  // Python 侧拿到绝对路径后 emit 'files.dropped'。这里是唯一入口：
+  // 拖进来的文件会直接进导入流程，不再弹一次文件选择框。
+  if (window.events) {
+    window.events.on('files.dropped', async (payload) => {
+      const paths = (payload && payload.paths) || [];
+      const rejected = (payload && payload.rejected) || [];
+      // 探针用：把收到的内容留在 window 上，方便脚本读取（正常使用无副作用）
+      (window.__dropLog = window.__dropLog || []).push({ paths, rejected });
+      $('#dropZone').classList.remove('drag');
+      if (state.view !== 'import') setView('import');
+
+      if (!paths.length) {
+        // 拖了东西但一个都认不出来 —— 别沉默，说清为什么
+        await infoDialog({
+          title: '无法导入', tone: 'warning',
+          text: rejected.length
+            ? ('只支持 ZIP、7z 和 RAR 压缩包，以下文件不符合：\n'
+               + rejected.slice(0, 6).join('\n')
+               + (rejected.length > 6 ? '\n…还有 ' + (rejected.length - 6) + ' 个' : ''))
+            : '没有识别到可导入的压缩包。',
+        });
+        return;
+      }
+      if (rejected.length) {
+        toast('已跳过 ' + rejected.length + ' 个不支持的文件');
+      }
+      await importPaths(paths);
+    });
+  }
 
   // ---------------------------------------------------------------- 状态栏事件
   if (window.events) {

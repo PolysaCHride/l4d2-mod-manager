@@ -471,6 +471,53 @@ class Api(object):
             return None
         return self._store.get_mod(file_name)
 
+    # ------------------------------------------------------- 文件拖拽（WebView2）
+    #
+    # 为什么需要这一层：浏览器安全模型里 `File` 对象只有 name/size/type，
+    # **没有绝对路径**（Chrome/WebView2 都故意不给）。而导入压缩包要真实路径
+    # 去调 7-Zip，所以前端那个 `dataTransfer.files[0].path` 永远是 undefined。
+    #
+    # pywebview 留了一条后门：只要**由 Python 侧** `Element.on('drop', cb)`
+    # 注册监听，`_dnd_state['num_listeners']` 就会 +1，WebView2 才会走
+    # `postMessageWithAdditionalObjects('FilesDropped', files)` 这个分支，
+    # 传的是带 `.Path` 的 CoreWebView2File；pywebview 再把绝对路径回填到
+    # 事件里每个 file 的 `pywebviewFullPath` 字段。
+    #
+    # 光在 JS 里 addEventListener('drop') 不触发这条通道 —— 这就是「拖拽
+    # 看起来支持、实际拿不到路径」的根因。
+
+    DROP_EXTS = (".zip", ".7z", ".rar")
+
+    def on_file_drop(self, event):
+        """pywebview 的 DOM drop 回调：从事件里挖出绝对路径，推给前端。
+
+        由 `main_web._arm_file_drop` 在 Python 侧注册；**不要改成 JS 监听**，
+        否则拿不到 `pywebviewFullPath`。
+        """
+        try:
+            files = ((event or {}).get("dataTransfer") or {}).get("files") or []
+            paths, rejected = [], []
+            for item in files:
+                if not isinstance(item, dict):
+                    continue
+                path = item.get("pywebviewFullPath") or item.get("path") or ""
+                name = item.get("name") or os.path.basename(path)
+                if not path:
+                    # 拿不到路径的条目直接归类为「不支持」，不要静默丢掉
+                    rejected.append(name or "(未知文件)")
+                    continue
+                if not path.lower().endswith(self.DROP_EXTS):
+                    rejected.append(name)
+                    continue
+                if not os.path.isfile(path):
+                    rejected.append(name)
+                    continue
+                paths.append(path)
+            self._emit("files.dropped", {"paths": paths, "rejected": rejected})
+            return _ok(paths=paths, rejected=rejected)
+        except Exception as exc:
+            return _err(exc)
+
     # ---------------------------------------------------------------- 读
 
     def bootstrap(self):
