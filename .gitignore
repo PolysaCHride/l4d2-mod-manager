@@ -52,3 +52,13 @@ docs/redesign/final/_e*.png
 docs/redesign/final/demo-*.png
 docs/redesign/final/__pycache__/
 docs/redesign/final/.out/
+
+# ---- 个人开发文件：只留在本地，不进仓库（2026-11-22）----
+# 这是个人项目，工作进度 / 开发文档 / 内部脚本不对外。
+# 注意：docs/images/ 里的截图是 README 要用的，**不在排除之列**。
+/HANDOFF.md
+/docs/*
+!/docs/images/
+!/docs/images/**
+/tests/
+/scripts/
