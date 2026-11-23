@@ -684,7 +684,10 @@ class Api(object):
             self._ensure()
             if self._library is None:
                 return _err("未配置游戏目录")
-            if self._game_running():
+            # `_game_running` 是**模块级函数**，不是方法 —— 写成 self. 会抛
+            # AttributeError，被下面的 except 吞掉后变成一个静默失败：
+            # 界面上互斥开关亮了，但同组模组一个都没被停用。
+            if _game_running():
                 return _err("游戏运行中，无法修改模组配置，请先退出游戏。")
 
             lib = self._library
