@@ -28,14 +28,21 @@ $versionInfo = Join-Path $projectRoot "packaging\version_info.txt"
 $STACK_CONFIG = @{
     legacy = @{
         Spec     = "L4D2ModManager.spec"
-        Product  = "L4D2 Mod Manager"
-        Suffix   = ""
+        # 旧 PySide6 界面 2026-11-21 已归档，不再发版。给它带上 -legacy /
+        # (Legacy)，保证和 web 栈的产物名不撞 —— 两套栈同名会静默互相覆盖
+        # （见 HANDOFF §6.7），这是当初加后缀的原因。
+        Product  = "L4D2 Mod Manager (Legacy)"
+        Suffix   = "-legacy"
         Entry    = "main.py"
     }
     web    = @{
         Spec     = "L4D2ModManagerWeb.spec"
-        Product  = "L4D2 Mod Manager (WebUI)"
-        Suffix   = "-web"
+        # 旧 PySide6 界面已归档、不再发布，所以「两套并存」时期的 -web 后缀
+        # 和 (WebUI) 括注都不需要了 —— 用户看到的应该是干净的
+        # `L4D2 Mod Manager-v1.3-win64` / `L4D2 Mod Manager.exe`。
+        # 真要重发旧界面时，把 legacy 那条的 Suffix 设成 "-legacy" 即可。
+        Product  = "L4D2 Mod Manager"
+        Suffix   = ""
         Entry    = "main_web.py"
     }
 }

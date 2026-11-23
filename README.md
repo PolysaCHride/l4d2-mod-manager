@@ -108,7 +108,7 @@ Steam 创意工坊的订阅内容默认下载到 `left4dead2/addons/workshop/` �
 
 最新正式版请到 [GitHub Releases](https://github.com/PolysaCHride/l4d2-mod-manager/releases/latest) 下载。
 
-1. 下载 `L4D2 Mod Manager-v1.3-win64-web.zip` 并解压。
+1. 下载 `L4D2 Mod Manager-v1.3-win64.zip` 并解压。
 2. 运行 `L4D2 Mod Manager.exe`，无需安装。
 3. 首次启动会引导你选游戏目录（一般能自动检测到），然后点「整理」把现有模组收进库里。
 4. 之后按需导入压缩包或从创意工坊下载。
