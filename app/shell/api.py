@@ -598,6 +598,13 @@ class Api(object):
                 return _err("未配置游戏目录")
 
             enabled = bool(enabled)
+            # 后端再兜一层：前端状态可能过期（先开管理器后开游戏），
+            # 而游戏运行中写 addonlist.txt 会被游戏覆盖，甚至写坏。
+            state = _game_running()
+            if state is None:
+                return _err("无法确认游戏是否在运行，为避免损坏 addonlist.txt，已取消写入。")
+            if state:
+                return _err("游戏运行中，无法修改模组配置，请先退出游戏。")
             # mutex=None → 由 core 按该模组**自己的子分类开关**判断，
             # 不再传一个全局值。这样关掉 Nick 的互斥不影响 AK-47。
             disabled = self._library.set_enabled(file_name, enabled)
@@ -649,6 +656,13 @@ class Api(object):
                 return _err("未配置游戏目录")
             if not (category and item):
                 return _err("缺少分类或子分类，无法设置互斥")
+            # 开/关互斥本身只写 settings，但**打开时会立刻收敛**（停用同组其它），
+            # 那是写 addonlist —— 所以同样要拦。
+            state = _game_running()
+            if state is None:
+                return _err("无法确认游戏是否在运行，为避免损坏 addonlist.txt，已取消。")
+            if state:
+                return _err("游戏运行中，无法修改同组互斥，请先退出游戏。")
             lib = self._library
             value = lib.set_group_mutex(category, item, bool(enabled))
             key = (str(category), str(item))
@@ -657,7 +671,7 @@ class Api(object):
         except Exception as exc:
             return _err(exc)
 
-    def resolve_conflicts(self, category=None, item=None):
+    def resolve_conflicts(self, category=None, item=None, winner=None):
         """把冲突收敛到一个启用项（保留名称排序第一个）。
 
         给了 `category` + `item` → 只收敛这一个组（界面里「默认启用」用）；
@@ -678,7 +692,7 @@ class Api(object):
             only = ((str(category), str(item))
                     if (category and item) else None)
             al = AddonList.load(lib.paths.addonlist_file)
-            disabled, _enabled = lib._settle_conflicts(al, only=only)
+            disabled, _enabled = lib._settle_conflicts(al, only=only, winner=winner)
             al.save(lib.paths.addonlist_file)
             lib.store.save_library()
             mods = self._all_mods()
@@ -1040,6 +1054,20 @@ class Api(object):
             if not silent:
                 print("[shell] 自动检测游戏目录失败:", exc, flush=True)
             return ""
+
+    def get_game_state(self):
+        """即时查询游戏是否在运行。前端在**每次写操作前**和定时轮询时调。
+
+        为什么需要：`bootstrap` 只在启动时算一次，用户先开管理器再开游戏时，
+        前端那个 `state.gameRunning` 永远是 false —— 于是一路放行写入，
+        而游戏运行中写 `addonlist.txt` 会被游戏覆盖甚至损坏。
+        这个接口没有任何缓存，每次都现查（Toolhelp 快照约 1ms）。
+        """
+        try:
+            state = _game_running()
+            return _ok(running=bool(state), unknown=state is None)
+        except Exception as exc:
+            return _err(exc)
 
     def detect_game_dir(self):
         try:

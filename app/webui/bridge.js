@@ -299,14 +299,14 @@
       };
     },
 
-    resolve_conflicts: async (category, item) => {
-      const res = await call('resolve_conflicts', category, item);
+    resolve_conflicts: async (category, item, winner) => {
+      const res = await call('resolve_conflicts', category, item, winner || '');
       if (res) return res;
       const disabled = [];
       mockConflictGroups()
         .filter((g) => !category || (g.category === category && g.item === item))
         .forEach((g) => {
-          const keep = (g.winner || {}).file;
+          const keep = winner || (g.winner || {}).file;
           g.members.forEach((m) => {
             const rec = MOCK.mods.find((x) => x.file === m.file);
             if (!rec) return;
@@ -377,6 +377,10 @@
       }
       return { ok: true, job_id: job.job_id };
     },
+
+    // 即时查询游戏是否在运行（无缓存，每次现查）
+    get_game_state: async () => call('get_game_state')
+      || { ok: true, running: false, unknown: false },
 
     // 自动检测游戏目录（找到就落盘并重建 Library）
     autodetect_game_dir: async () => call('autodetect_game_dir') || { ok: true, game_dir: '' },

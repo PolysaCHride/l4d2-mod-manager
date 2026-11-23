@@ -266,33 +266,83 @@
    */
   function conflictDialog(groups) {
     return new Promise((resolve) => {
-      const list = groups.map((g) => {
+      // ⚠️ 不能用 openModal 的 onClose 直接 resolve：点「启用」时
+      // closeModal() 会先同步触发 onClose（→ resolve('keep')），再 resolve(结果)，
+      // Promise 只认第一次 —— 于是点「启用」实际等于点了「关闭互斥」。
+      // 这个 settled 闸把后到的那次挡住。
+      let settled = false;
+      const settle = (value) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+
+      const groupsList = groups || [];
+      // 每组当前选中「保留」的哪个（默认 = winner = 名称排序第一）。
+      // ⚠️ 用**组下标**当 key，不要把 "分类\u0000子分类" 写进 data-*：
+      // HTML 属性往返时 NUL 会被替换成 U+FFFD，于是同一组变成两个键。
+      const picks = groupsList.map((g) =>
+        (g.winner || {}).file || ((g.members || [])[0] || {}).file || '');
+
+      const list = groupsList.map((g, gi) => {
         const rows = (g.members || []).map((m) => {
-          const keep = m.file === ((g.winner || {}).file);
-          return `<div class="cf-row ${keep ? 'keep' : 'drop'}">
+          const keep = m.file === picks[gi];
+          return `<button class="cf-row ${keep ? 'keep' : 'drop'}" type="button"
+                    data-pick="${gi}" data-file="${esc(m.file)}">
             <i></i><span>${esc(m.title || m.file)}</span>
-            ${keep ? '<em>保留</em>' : ''}</div>`;
+            ${keep ? '<em>保留</em>' : ''}</button>`;
         }).join('');
         return `<div class="cf-group">
           <div class="cf-head">${esc(g.category)} · ${esc(g.item)}</div>${rows}</div>`;
       }).join('');
+
       const html = `<div class="dlg info" style="max-width:460px">
-        <div class="dlg-head"><span class="dot"></span><h4>发现 ${groups.length} 组冲突</h4>
+        <div class="dlg-head"><span class="dot"></span><h4>发现冲突</h4>
           <button class="dlg-close" type="button" data-btn="close" aria-label="关闭">${icon('x')}</button></div>
         <div class="dlg-body">
-          <p class="dlg-text">开启同组互斥后，同一物品只保留一个启用项。以下模组将被启用，同组其余模组会停用：</p>
+          <p class="dlg-text">开启同组互斥后，同一物品只保留一个启用项。点一行可以改选要保留的那个：</p>
           <div class="cf-list">${list}</div>
         </div>
         <div class="dlg-foot">
           <button class="btn ghost" type="button" data-btn="keep">关闭互斥</button>
-          <button class="btn primary" type="button" data-btn="enable">默认启用</button>
+          <button class="btn primary" type="button" data-btn="enable">启用</button>
         </div></div>`;
-      openModal(html, { onClose: () => resolve('keep') });
+
+      openModal(html, { onClose: () => settle('keep') });
+
+      // 整行可点：点谁就把该组的「保留」切到谁
+      $$('#modal-host [data-pick]').forEach((row) => row.addEventListener('click', () => {
+        const gi = Number(row.dataset.pick);
+        picks[gi] = row.dataset.file;
+        $$('#modal-host [data-pick]').forEach((r) => {
+          if (Number(r.dataset.pick) !== gi) return;
+          const on = r.dataset.file === picks[gi];
+          r.classList.toggle('keep', on);
+          r.classList.toggle('drop', !on);
+          const em = r.querySelector('em');
+          if (on && !em) r.insertAdjacentHTML('beforeend', '<em>保留</em>');
+          if (!on && em) em.remove();
+        });
+      }));
+
       $$('#modal-host [data-btn]').forEach((b) => b.addEventListener('click', () => {
-        if (b.dataset.btn === 'close') { closeModal(); resolve('keep'); return; }
-        const value = b.dataset.btn === 'enable' ? 'enable' : 'keep';
+        const kind = b.dataset.btn;
+        // ⚠️ 先摘掉 onClose。closeModal() 会同步调它（→ settle('keep')），
+        // 而 settle 只认第一次 —— 不摘的话点「启用」永远等于「关闭互斥」。
+        const root = $('#modal-root');
+        if (root) root._onClose = null;
+        // 返回 [{category, item, file}]，调用方按分类/子分类自己配对 ——
+        // 不经过任何字符串拼键，也就没有转义问题。
+        const result = (kind === 'enable')
+          ? {
+              action: 'enable',
+              chosen: groupsList.map((g, gi) => ({
+                category: g.category, item: g.item, file: picks[gi],
+              })),
+            }
+          : 'keep';
         closeModal();
-        resolve(value);
+        settle(result);
       }));
     });
   }
@@ -1358,8 +1408,29 @@
     return '';
   }
 
+  /** 同步版本：只看本地状态，给纯 UI 判断（比如按钮禁用态）用。 */
   function writeBlocked() {
     return writeBlockedOf(state.gameRunning, state.gameUnknown);
+  }
+
+  /**
+   * 写操作前现查一次游戏状态。
+   *
+   * 为什么不能只用 state：`bootstrap` 只在启动时算一次。用户先开管理器、
+   * 后开游戏时，本地状态永远是「没运行」，于是一路放行 —— 而游戏运行中
+   * 写 addonlist.txt 会被游戏覆盖，甚至写坏。
+   * 这个函数每次打后端（Toolhelp 快照约 1ms），并顺手刷新本地状态。
+   */
+  async function refreshGameState() {
+    const res = await window.bridge.get_game_state();
+    if (res && res.ok) {
+      const changed = (state.gameRunning !== !!res.running)
+                   || (state.gameUnknown !== !!res.unknown);
+      state.gameRunning = !!res.running;
+      state.gameUnknown = !!res.unknown;
+      if (changed) applyGameStatus();
+    }
+    return writeBlocked();
   }
 
   async function reloadMods() {
@@ -1369,6 +1440,20 @@
       // 合集归属会随下载/删除变化，一并刷新，否则「更多 → 合集」会显示旧成员
       state.collections = res.collections || state.collections;
       state.catalog = res.catalog || state.catalog;
+      // 后端可能在「整理 / 自动检测」时刚写入了 game_dir ——
+      // 不刷新的话设置页还写着「未设置」，状态栏右下角也是空的。
+      if (res.settings) {
+        const prevDir = state.settings.game_dir || '';
+        state.settings = Object.assign({}, state.settings, res.settings);
+        if ((res.settings.game_dir || '') !== prevDir) {
+          renderSettings();
+        }
+      }
+      if (res.paths && res.paths.addons) {
+        state.addonsDir = res.paths.addons;
+        const el = $('#statusPath');
+        if (el) el.textContent = res.paths.addons;
+      }
       return true;
     }
     return false;
@@ -1398,7 +1483,7 @@
     const m = MODS.find((x) => x.id === id);
     if (!m) return;
     state.selectedId = id;                 // 双击同时选中，Inspector 跟着变
-    const blocked = writeBlocked();
+    const blocked = await refreshGameState();
     if (blocked) {
       paintCards(); renderInspector();
       await infoDialog({
@@ -1541,7 +1626,7 @@
   async function runAdopt() {
     if (adoptFlow.running) return;
 
-    const blockedAdopt = writeBlocked();
+    const blockedAdopt = await refreshGameState();
     if (blockedAdopt) {
       await infoDialog({
         title: state.gameUnknown ? '无法确认游戏状态' : '游戏运行中',
@@ -1718,7 +1803,7 @@
       (c) => c.selected && !c.dup && !c.parseError);
     if (!picked.length) return;
 
-    const blockedImport = writeBlocked();
+    const blockedImport = await refreshGameState();
     if (blockedImport) {
       await infoDialog({
         title: state.gameUnknown ? '无法确认游戏状态' : '游戏运行中',
@@ -1863,7 +1948,7 @@
   async function startDownload() {
     const picked = dlFlow.items.filter((i) => i.selected && !i.dup);
     if (!picked.length) return;
-    const blockedDl = writeBlocked();
+    const blockedDl = await refreshGameState();
     if (blockedDl) {
       await infoDialog({
         title: state.gameUnknown ? '无法确认游戏状态' : '游戏运行中',
@@ -2225,6 +2310,16 @@
     if (!g) return;
     const next = !groupMutexOn(g);
 
+    // 开互斥会立刻停用同组其它模组（写 addonlist），游戏在跑就不能做
+    if (next) {
+      const blocked = await refreshGameState();
+      if (blocked) {
+        await infoDialog({ title: state.gameUnknown ? '无法确认游戏状态' : '游戏运行中',
+                           tone: 'warning', text: blocked });
+        return;
+      }
+    }
+
     if (next) {
       // 打开前先算一遍**这个子分类**的存量冲突。别的子分类的问题不在这里弹，
       // 用户没理由在看 Nick 的时候处理 Tank。
@@ -2232,9 +2327,13 @@
       const groups = (res && res.ok && res.conflicts) || [];
       if (groups.length) {
         const choice = await conflictDialog(groups);
-        if (choice !== 'enable') {
+        if (!choice || choice === 'keep') {
           return;                      // 用户选「关闭互斥」→ 什么都不改
         }
+        // 用户在弹窗里点选要保留的模组；没选就是每组的默认 winner
+        const chosenRow = (choice.chosen || []).find(
+          (x) => x.category === g.category && x.item === g.item);
+        const picked = (chosenRow && chosenRow.file) || '';
         const done = await window.bridge.set_mutex(true, g.category, g.item);
         if (!done || !done.ok) {
           await infoDialog({ title: '无法切换', tone: 'danger',
@@ -2243,7 +2342,7 @@
         }
         state.mutexOff.delete(groupKeyOf(g));
         paintMutexBtn();
-        const fixed = await window.bridge.resolve_conflicts(g.category, g.item);
+        const fixed = await window.bridge.resolve_conflicts(g.category, g.item, picked);
         if (fixed && fixed.ok) {
           MODS = (fixed.mods || MODS).map(adapt);
           await loadFromBridge();
@@ -2389,6 +2488,32 @@
       await importPaths(paths);
     });
   }
+
+  // ---------------------------------------------------------------- 游戏状态轮询
+  // bootstrap 只在启动时算一次，用户中途开/关游戏时顶栏会一直是旧状态。
+  // 每 4 秒问一次后端（Toolhelp 快照 ~1ms）。用 setTimeout 串起来而不是
+  // setInterval：查询慢的时候不会堆积。
+  async function pollGameState() {
+    try {
+      const res = await window.bridge.get_game_state();
+      if (res && res.ok) {
+        const changed = (state.gameRunning !== !!res.running)
+                     || (state.gameUnknown !== !!res.unknown);
+        state.gameRunning = !!res.running;
+        state.gameUnknown = !!res.unknown;
+        if (changed) applyGameStatus();
+      }
+    } catch (err) {
+      // 轮询失败不影响使用，下一轮再试
+    } finally {
+      setTimeout(pollGameState, 4000);
+    }
+  }
+  pollGameState();
+
+  // 调试钩子：挂在已有的事件总线对象上（不新增全局变量），
+  // 让离线渲染脚本能直接打开冲突弹窗做交互验证。正常使用不会碰它。
+  if (window.__dsh) window.__dsh.debugConflictDialog = conflictDialog;
 
   // ---------------------------------------------------------------- 状态栏事件
   if (window.events) {

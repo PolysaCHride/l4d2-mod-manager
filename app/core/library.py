@@ -943,15 +943,19 @@ class Library(object):
         self.store.save_library()
         return stats
 
-    def _settle_conflicts(self, al, only=None):
+    def _settle_conflicts(self, al, only=None, winner=None):
         """把每个互斥组收敛到只剩一个启用项，返回 (被停用, 被启用) 文件名列表。
 
         `only` 为 `(分类, 物品)` 或键的集合时只处理这些组（界面上「只收敛
         当前子分类」用）；省略则处理全库（「整理」用）。
 
+        `winner` 指定要保留哪个文件（界面上用户在冲突弹窗里点选的那个）；
+        省略时按名称排序取第一个。指定的那一项如果当前是停用的，会被**启用**
+        （用户在弹窗里明确选了它，就该按他选的来）。
+
         取舍规则（用户 2026-11-22 裁定「保留管理器原本记着启用的那个」）：
           1. 组里只有一个启用项 → 不动它；
-          2. 组里有多个启用项 → 取名称排序第一个，其余写 "0"；
+          2. 组里有多个启用项 → 保留 winner，其余写 "0"；
           3. 组里一个都没启用 → 全组保持停用，**不主动启用任何东西**
              （整理是「接管现有文件」，不是「帮你开始玩」）。
         """
@@ -973,12 +977,29 @@ class Library(object):
 
         disabled, enabled_extra = [], []
         for key, members in groups.items():
+            # 用户在弹窗里点选了要保留的那个 → 优先
+            chosen = None
+            if winner:
+                chosen = next((r for r in members if r["file"] == winner), None)
+            if chosen is not None:
+                if not chosen.get("enabled"):
+                    al.set(chosen["file"], "1")
+                    chosen["enabled"] = True
+                    enabled_extra.append(chosen["file"])
+                for rec in members:
+                    if rec["file"] == chosen["file"] or not rec.get("enabled"):
+                        continue
+                    al.set(rec["file"], "0")
+                    rec["enabled"] = False
+                    disabled.append(rec["file"])
+                continue
+
             active = [r for r in members if r.get("enabled")]
             if len(active) <= 1:
                 continue                      # 0 个或 1 个都无需收敛
-            winner = sorted(active, key=mod_name_sort_key)[0]
+            keep = sorted(active, key=mod_name_sort_key)[0]
             for rec in active:
-                if rec["file"] == winner["file"]:
+                if rec["file"] == keep["file"]:
                     continue
                 al.set(rec["file"], "0")
                 rec["enabled"] = False
