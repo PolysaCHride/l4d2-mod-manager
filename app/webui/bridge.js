@@ -378,6 +378,9 @@
       return { ok: true, job_id: job.job_id };
     },
 
+    // 自动检测游戏目录（找到就落盘并重建 Library）
+    autodetect_game_dir: async () => call('autodetect_game_dir') || { ok: true, game_dir: '' },
+
     // 全量采纳：会移动文件（子目录 → 顶层、workshop → 迁移）
     start_adopt: async () => {
       const res = await call('start_adopt');

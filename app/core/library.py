@@ -900,20 +900,30 @@ class Library(object):
                 self.store.upsert_mod(rec)
             stats["moved"] += 1
 
-        # 4) 顶层未登记文件 → 补记（保持加载状态）
+        # 4) 顶层未登记文件 → 补记（保持游戏里的加载状态）
+        #
+        # ⚠️ 这里的「已登记」判的是**管理器自己的库**（store），不是 addonlist.txt。
+        # addonlist.txt 是游戏自己维护的：只要装过 / 订阅过模组，里面就已经有
+        # 全部条目。以前这里写的是 `if name in al.entries: continue`，
+        # 结果真实游戏目录（首次整理时 addonlist 早已填满）会把每一个 vpk 都跳过，
+        # 整理完库还是空的 —— v1.3 发行版实测就是这个现象。
         top_names = self.list_addon_files()
         for i, name in enumerate(top_names):
             if progress:
                 progress("登记顶层 mod…", i + 1, name)
-            if name in al.entries:
-                continue
+            if self.store.get_mod(name) is not None:
+                continue          # 已在库里，启用状态由 rescan 维护，不重复解析
             rec, _rb = self._scan_one(name)
             if rec is None:
                 continue
-            rec["enabled"] = True
+            # 以 addonlist 为准：里面记着 "0" 的，整理之后仍然停用。
+            # 以前无条件写 True，会把用户在游戏里手动关掉的模组又打开。
+            rec["enabled"] = al.get(name, "1").strip() == "1"
             rec["source"] = rec.get("source") or "adopt"
             self.store.upsert_mod(rec)
-            al.set(name, "1")
+            if name not in al.entries:
+                al.set(name, "1")
+                rec["enabled"] = True
             stats["adopted"] += 1
 
         # 2026-11-22：互斥回归，但**由界面开关决定**（用户裁定「以管理器自己的

@@ -1509,6 +1509,35 @@
    *   · workshop/ 子目录   → 迁移并保留启用状态
    * 所以必须先确认，且游戏运行中禁止（后端也兜了一层）。
    */
+  /**
+   * 处理 start_adopt 的失败返回。返回 true 表示「已经处理完，调用方直接 return」。
+   *
+   * `GAME_DIR_REQUIRED` 是后端在「没配目录 + 自动检测也失败」时给的暗号：
+   * 这时候不能报一个干巴巴的「未配置游戏目录」，
+   * 得把用户领到能解决它的地方（设置页）。
+   */
+  async function handleAdoptError(res) {
+    const msg = (res && res.error) || '整理失败';
+    if (msg !== 'GAME_DIR_REQUIRED') {
+      await infoDialog({ title: '无法整理', tone: 'danger', text: msg });
+      return;
+    }
+    const go = await confirmDialog({
+      title: '还没设置游戏目录',
+      tone: 'question',
+      text: '没有找到 Left 4 Dead 2 的安装目录，整理无从下手。\n\n'
+          + '通常是 Steam 装在非默认位置、或者游戏没装在本机。\n'
+          + '去设置里手动选一次游戏根目录（含 left4dead2 文件夹的那一层），之后就不用再管了。',
+      confirm: '去设置',
+      cancel: '稍后',
+    });
+    if (go) {
+      setView('settings');
+      const row = document.querySelector('[data-setting="browse"]');
+      if (row) row.focus();
+    }
+  }
+
   async function runAdopt() {
     if (adoptFlow.running) return;
 
@@ -1537,8 +1566,7 @@
     const res = await window.bridge.start_adopt();
     if (!res || !res.ok) {
       adoptFlow.running = false;
-      await infoDialog({ title: '无法整理', tone: 'danger',
-                         text: (res && res.error) || '整理失败' });
+      await handleAdoptError(res);
       return;
     }
 
@@ -2382,8 +2410,7 @@
       if (!res || !res.ok) {
         onboardBtn.disabled = false;
         onboardBtn.textContent = '开始整理';
-        await infoDialog({ title: '无法整理', tone: 'danger',
-                           text: (res && res.error) || '整理失败' });
+        await handleAdoptError(res);
         return;
       }
       runJob(res.job_id,

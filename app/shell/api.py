@@ -804,7 +804,7 @@ class Api(object):
         except Exception as exc:
             return _err(exc)
 
-    def start_adopt(self):
+    def start_adopt(self, autodetect=True):
         """全量采纳：把 addons 下所有 vpk 纳入管理（core 的 adopt_all）。
 
         和 start_scan 的关键区别 —— 这个**会移动文件**：
@@ -812,12 +812,21 @@ class Api(object):
           · 非 workshop 的子目录    → 整组移到顶层，记 "0"（禁用）
           · workshop/ 子目录        → 走迁移逻辑，保留启用状态
         所以前端必须先弹确认框，且游戏运行中禁止调用（调用方负责，这里再兜一层）。
-        返回 stats: {adopted, moved, migrated, deduped, conflicts, errors, ...}
+
+        没配游戏目录时**先自己找一遍**（`autodetect=True`）：
+        用户点「开始整理」的意图是「让我能用」，不是「让我先填设置」。
+        只有自动检测也失败，才把配置游戏目录这件事交回给用户。
         """
         try:
             self._ensure()
             if self._library is None:
-                return _err("未配置游戏目录")
+                # 还没配目录 → 先自动检测一次，能认出来就直接用
+                if autodetect:
+                    found = self.autodetect_game_dir(silent=True)
+                    if found:
+                        self._ensure()      # save_setting 里已经重置过，重新建 Library
+                if self._library is None:
+                    return _err("GAME_DIR_REQUIRED")
 
             # 会移动文件，游戏占用 addons 时绝不能动
             try:
@@ -1004,6 +1013,33 @@ class Api(object):
             return _ok()
         except Exception as exc:
             return _err(exc)
+
+    def autodetect_game_dir(self, silent=False):
+        """自动找游戏目录，找到就**写进设置并重建 Library**，返回路径（找不到返回空串）。
+
+        与 `detect_game_dir` 的分工：那个只查不写（设置页「自动检测」按钮用，
+        点完还要用户确认）；这个直接落盘，给「整理」这类必须马上能用的场景用。
+        """
+        try:
+            self._ensure()
+            found = paths_core.find_game_dir() if hasattr(paths_core, "find_game_dir") else ""
+            if not found or not paths_core.is_game_dir(found):
+                return ""
+            if self._store is None:
+                return ""
+            self._store.set_setting("game_dir", found)
+            with self._lock:
+                self._store = None
+                self._library = None
+                self._game_paths = None
+            self._ensure()
+            if not silent:
+                print("[shell] 自动检测到游戏目录:", found, flush=True)
+            return found
+        except Exception as exc:
+            if not silent:
+                print("[shell] 自动检测游戏目录失败:", exc, flush=True)
+            return ""
 
     def detect_game_dir(self):
         try:
